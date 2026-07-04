@@ -1,0 +1,23 @@
+/* Injected on every matched site; only has effect while the content script
+   sets the html attributes (i.e. block mode is active on a limited path).
+
+   Two strategies, chosen by blocker.js:
+   - feed-hidden: the stories tray was found — hide only the marked sibling
+     branches (feed posts, suggestions, ...) so the tray stays usable.
+   - main-hidden: no tray on this surface — hide <main> entirely.
+
+   Hidden branches are display:none, so they collapse the page height and the
+   feed never reaches its "load more" trigger. */
+html[data-uf-feed-hidden] main [data-uf-hide] {
+  display: none !important;
+}
+
+html[data-uf-main-hidden] main {
+  display: none !important;
+}
+
+/* Item drift wall only: post/reel viewers can be dialogs living outside
+   <main>. Never set for regular feed blocking, so drawers keep working. */
+html[data-uf-dialogs-hidden] [role="dialog"] {
+  display: none !important;
+}

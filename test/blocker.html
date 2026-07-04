@@ -1,0 +1,102 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>UFFeedBlocker test harness</title>
+    <link rel="stylesheet" href="../src/content/blocker.css" />
+    <style>
+      body { font-family: system-ui; }
+      main { border: 1px solid #ccc; padding: 8px; }
+      #results { white-space: pre; font-family: monospace; }
+    </style>
+  </head>
+  <body>
+    <nav>sidebar (never touched)</nav>
+    <div id="dialog" role="dialog">post modal (portal outside main)</div>
+    <main>
+      <div id="col">
+        <div id="trayWrap">
+          <ul id="tray">
+            <li><a href="/stories/alice/1/">alice</a></li>
+            <li><a href="/stories/bob/2/">bob</a></li>
+          </ul>
+        </div>
+        <article id="post1">post 1 <a href="/stories/carol/3/">story link inside a post</a></article>
+        <article id="post2">post 2</article>
+      </div>
+      <aside id="suggestions">suggested for you</aside>
+    </main>
+    <div id="results"></div>
+    <script src="../src/content/blocker.js"></script>
+    <script>
+      (async () => {
+        const out = [];
+        let fails = 0;
+        const check = (cond, name) => {
+          out.push((cond ? "PASS" : "FAIL") + "  " + name);
+          if (!cond) fails++;
+        };
+        const hidden = (el) => getComputedStyle(el).display === "none";
+        const tick = () =>
+          new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
+
+        const blocker = new UFFeedBlocker();
+        blocker.message = "With focus, anything is possible.";
+        blocker.activate();
+        await tick();
+
+        const dialog = document.getElementById("dialog");
+        check(document.documentElement.hasAttribute("data-uf-feed-hidden"), "tray found: selective mode");
+        check(!hidden(dialog), "feed block keeps dialogs usable");
+        check(!hidden(document.getElementById("tray")), "stories tray stays visible");
+        check(hidden(document.getElementById("post1")), "post containing a story link is hidden");
+        check(hidden(document.getElementById("post2")), "feed post is hidden");
+        check(hidden(document.getElementById("suggestions")), "suggestions sidebar is hidden");
+        check(blocker.overlay.textContent.includes("With focus"), "overlay shows the message");
+
+        // React-style re-render: a new post appears → observer hides it
+        const post3 = document.createElement("article");
+        post3.id = "post3";
+        post3.textContent = "post 3";
+        document.getElementById("col").appendChild(post3);
+        await tick();
+        await tick();
+        check(hidden(post3), "newly rendered post gets hidden");
+
+        blocker.deactivate();
+        check(!hidden(document.getElementById("post1")), "deactivate restores posts");
+        check(!hidden(document.getElementById("suggestions")), "deactivate restores sidebar");
+        check(
+          !document.documentElement.hasAttribute("data-uf-feed-hidden") &&
+            !document.documentElement.hasAttribute("data-uf-main-hidden"),
+          "deactivate clears attributes"
+        );
+
+        // Item drift wall: dialogs (post/reel viewers outside <main>) are
+        // hidden too
+        blocker.hideDialogs = true;
+        blocker.activate();
+        await tick();
+        check(hidden(dialog), "drift wall hides dialogs");
+        blocker.deactivate();
+        check(!hidden(dialog), "deactivate restores dialogs");
+        blocker.hideDialogs = false;
+
+        // Explore/Reels-like surface: no tray → whole <main> hidden. The
+        // story link inside the remaining post must NOT count as a tray.
+        document.getElementById("trayWrap").remove();
+        blocker.activate();
+        await tick();
+        check(document.documentElement.hasAttribute("data-uf-main-hidden"), "no tray: whole-main mode");
+        check(hidden(document.querySelector("main")), "main fully hidden without a tray");
+        blocker.deactivate();
+        check(!hidden(document.querySelector("main")), "deactivate restores main");
+
+        const summary = fails === 0 ? "ALL PASS (" + out.length + " checks)" : fails + " FAILURES";
+        out.push(summary);
+        document.getElementById("results").textContent = out.join("\n");
+        console.log("UF_TEST_RESULT: " + summary);
+      })();
+    </script>
+  </body>
+</html>

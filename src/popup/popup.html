@@ -1,0 +1,49 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="popup.css" />
+  </head>
+  <body>
+    <header>
+      <h1>Unlimited Focus</h1>
+      <label class="switch" title="Enable or disable everywhere">
+        <input id="enabled" type="checkbox" />
+        <span class="slider"></span>
+      </label>
+    </header>
+
+    <section>
+      <h2>Mode</h2>
+      <label class="choice">
+        <input type="radio" name="mode" value="block" />
+        <span>Hide the feed<small>Show a focus message instead</small></span>
+      </label>
+      <div class="sub" id="messageRow">
+        <input id="message" type="text" maxlength="140" placeholder="Your focus message" />
+      </div>
+      <label class="choice">
+        <input type="radio" name="mode" value="limit" />
+        <span>Limit scrolling<small>Stop the feed after an allowance</small></span>
+      </label>
+      <div class="sub" id="allowanceRow">
+        <input id="maxScreens" type="number" min="1" max="50" />
+        <span class="unit">screens</span>
+      </div>
+    </section>
+
+    <section>
+      <h2>Sites</h2>
+      <ul id="sites"></ul>
+    </section>
+
+    <footer>
+      Only feeds are blocked or limited. Messages, posts, and everything else
+      keep working normally.
+    </footer>
+
+    <script src="../shared/sites.js"></script>
+    <script src="../shared/settings.js"></script>
+    <script src="popup.js"></script>
+  </body>
+</html>
