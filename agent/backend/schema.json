@@ -1,0 +1,104 @@
+{
+  "tables": {
+    "contacts": {
+      "columns": {
+        "id": {"type": "uuid", "primary": true, "default": "gen_random_uuid()"},
+        "platform": {"type": "text", "nullable": false},
+        "handle": {"type": "text", "nullable": false},
+        "display_name": {"type": "text"},
+        "profile_url": {"type": "text"},
+        "avatar_url": {"type": "text"},
+        "kind": {"type": "text", "default": "'person'"},
+        "meta": {"type": "jsonb", "default": "'{}'::jsonb"},
+        "first_seen_at": {"type": "timestamptz", "default": "now()"},
+        "last_seen_at": {"type": "timestamptz", "default": "now()"}
+      },
+      "indexes": {
+        "uq_contacts_platform_handle": {"columns": ["platform", "handle"], "unique": true}
+      }
+    },
+    "items": {
+      "columns": {
+        "id": {"type": "uuid", "primary": true, "default": "gen_random_uuid()"},
+        "platform": {"type": "text", "nullable": false},
+        "kind": {"type": "text", "nullable": false},
+        "external_id": {"type": "text", "nullable": false},
+        "url": {"type": "text"},
+        "contact_id": {"type": "uuid", "references": {"table": "contacts", "column": "id"}},
+        "media_type": {"type": "text"},
+        "topic": {"type": "text"},
+        "structured": {"type": "jsonb"},
+        "brief": {"type": "text"},
+        "detail": {"type": "text"},
+        "caption_raw": {"type": "text"},
+        "media_path": {"type": "text"},
+        "posted_at": {"type": "timestamptz"},
+        "captured_at": {"type": "timestamptz", "default": "now()"},
+        "graph_synced": {"type": "boolean", "default": "false"}
+      },
+      "indexes": {
+        "uq_items_platform_external": {"columns": ["platform", "external_id"], "unique": true},
+        "idx_items_contact": {"columns": ["contact_id"]},
+        "idx_items_captured": {"columns": ["captured_at"]}
+      }
+    },
+    "scrape_runs": {
+      "columns": {
+        "id": {"type": "uuid", "primary": true, "default": "gen_random_uuid()"},
+        "platform": {"type": "text", "nullable": false},
+        "started_at": {"type": "timestamptz", "default": "now()"},
+        "finished_at": {"type": "timestamptz"},
+        "status": {"type": "text", "default": "'running'"},
+        "stats": {"type": "jsonb", "default": "'{}'::jsonb"},
+        "error": {"type": "text"}
+      },
+      "indexes": {
+        "idx_runs_platform_started": {"columns": ["platform", "started_at"]}
+      }
+    },
+    "interactions": {
+      "columns": {
+        "id": {"type": "uuid", "primary": true, "default": "gen_random_uuid()"},
+        "item_id": {"type": "uuid", "references": {"table": "items", "column": "id"}},
+        "contact_id": {"type": "uuid", "references": {"table": "contacts", "column": "id"}},
+        "action": {"type": "text", "nullable": false},
+        "context": {"type": "jsonb", "default": "'{}'::jsonb"},
+        "created_at": {"type": "timestamptz", "default": "now()"}
+      },
+      "indexes": {
+        "idx_interactions_item": {"columns": ["item_id"]}
+      }
+    },
+    "digests": {
+      "columns": {
+        "id": {"type": "uuid", "primary": true, "default": "gen_random_uuid()"},
+        "period_start": {"type": "timestamptz"},
+        "period_end": {"type": "timestamptz"},
+        "headline": {"type": "text", "nullable": false},
+        "body": {"type": "text"},
+        "topics": {"type": "jsonb", "default": "'[]'::jsonb"},
+        "stats": {"type": "jsonb", "default": "'{}'::jsonb"},
+        "source": {"type": "text", "default": "'rocketride'"},
+        "status": {"type": "text", "default": "'hot'"},
+        "feedback": {"type": "text"},
+        "created_at": {"type": "timestamptz", "default": "now()"}
+      },
+      "indexes": {
+        "idx_digests_created": {"columns": ["created_at"]},
+        "idx_digests_status": {"columns": ["status"]}
+      }
+    },
+    "preferences": {
+      "columns": {
+        "id": {"type": "uuid", "primary": true, "default": "gen_random_uuid()"},
+        "key": {"type": "text", "nullable": false},
+        "value": {"type": "jsonb", "nullable": false},
+        "context": {"type": "text"},
+        "created_at": {"type": "timestamptz", "default": "now()"}
+      },
+      "indexes": {
+        "idx_preferences_key": {"columns": ["key"]}
+      }
+    }
+  }
+}

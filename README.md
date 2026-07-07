@@ -127,6 +127,14 @@ Both modes:
 - [ ] Toggling the extension off in the popup restores the page immediately
 - [ ] Switching modes in the popup swaps behavior without a reload
 
+## The agent (hackathon)
+
+The extension blocks the feed; [`agent/`](agent/README.md) is the counterpart
+that scrolls it **for** you — an AI agent that scrapes your feeds through your
+own Chrome session, shields you from ads/suggested content, and structures
+what your friends posted into Butterbase + a Neo4j knowledge graph, with
+digests and chat on top. See [agent/README.md](agent/README.md).
+
 ## Roadmap ideas
 
 - User-defined sites at runtime (`chrome.scripting.registerContentScripts` +

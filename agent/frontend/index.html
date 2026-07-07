@@ -1,0 +1,266 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Unlimited Focus</title>
+<style>
+  :root { --bg:#0e1116; --card:#171c24; --line:#242c38; --text:#e8edf4; --dim:#8b96a5;
+          --accent:#5eead4; --accent2:#7dd3fc; --warn:#fca5a5; }
+  * { box-sizing:border-box; margin:0; }
+  body { background:var(--bg); color:var(--text); font:15px/1.55 -apple-system,'Segoe UI',sans-serif; }
+  .wrap { max-width:880px; margin:0 auto; padding:24px 16px 80px; }
+  header { display:flex; align-items:baseline; gap:12px; margin-bottom:18px; flex-wrap:wrap; }
+  h1 { font-size:22px; letter-spacing:.3px; }
+  h1 span { color:var(--accent); }
+  .tag { color:var(--dim); font-size:13px; }
+  .spacer { flex:1; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:16px; margin-bottom:14px; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.12em; color:var(--dim); margin-bottom:10px; }
+  input, textarea { width:100%; background:#0b0e13; color:var(--text); border:1px solid var(--line);
+    border-radius:8px; padding:10px 12px; font:inherit; margin-bottom:8px; }
+  button { background:var(--accent); color:#06282a; border:0; border-radius:8px; padding:9px 16px;
+    font:600 14px/1 inherit; cursor:pointer; }
+  button.ghost { background:transparent; color:var(--accent2); border:1px solid var(--line); }
+  button.tiny { padding:5px 10px; font-size:12px; }
+  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+  .digest { border-left:3px solid var(--accent); padding-left:12px; margin-bottom:14px; }
+  .digest h3 { font-size:16px; margin-bottom:4px; }
+  .digest .meta { color:var(--dim); font-size:12px; margin-bottom:6px; }
+  .digest p { white-space:pre-wrap; }
+  .item { padding:10px 0; border-bottom:1px solid var(--line); }
+  .item:last-child { border-bottom:0; }
+  .item .who { color:var(--accent2); font-weight:600; }
+  .item .topic { display:inline-block; background:#0b2f2b; color:var(--accent); border-radius:99px;
+    padding:1px 9px; font-size:12px; margin-left:6px; }
+  .item a { color:var(--dim); font-size:12px; text-decoration:none; }
+  .item a:hover { color:var(--accent2); }
+  .shield { display:flex; gap:22px; }
+  .shield b { font-size:22px; color:var(--accent); display:block; }
+  .shield span { color:var(--dim); font-size:12px; }
+  #chatlog { max-height:340px; overflow-y:auto; margin-bottom:10px; }
+  .msg { margin-bottom:10px; }
+  .msg.me { color:var(--accent2); }
+  .msg .b { white-space:pre-wrap; }
+  .err { color:var(--warn); font-size:13px; margin-top:6px; min-height:18px; }
+  .hidden { display:none !important; }
+  footer { color:var(--dim); font-size:12px; margin-top:26px; text-align:center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>unlimited<span>focus</span></h1>
+    <div class="tag">the agent scrolls, you live</div>
+    <div class="spacer"></div>
+    <div id="whoami" class="row hidden">
+      <span class="tag" id="user-email"></span>
+      <button class="ghost tiny" id="btn-subscribe">Go Pro</button>
+      <button class="ghost tiny" id="btn-logout">Log out</button>
+    </div>
+  </header>
+
+  <!-- AUTH -->
+  <div id="view-auth" class="card">
+    <h2>Sign in</h2>
+    <input id="email" type="email" placeholder="email" autocomplete="username">
+    <input id="password" type="password" placeholder="password (8+ incl. Aa1!)" autocomplete="current-password">
+    <div id="verify-row" class="hidden">
+      <input id="code" placeholder="6-digit email verification code">
+    </div>
+    <div class="row">
+      <button id="btn-login">Log in</button>
+      <button class="ghost" id="btn-signup">Sign up</button>
+      <button class="ghost hidden" id="btn-verify">Verify email</button>
+    </div>
+    <div class="err" id="auth-err"></div>
+  </div>
+
+  <!-- APP -->
+  <div id="view-app" class="hidden">
+    <div class="card">
+      <h2>🛡 The shield</h2>
+      <div class="shield">
+        <div><b id="s-ads">–</b><span>ads never seen</span></div>
+        <div><b id="s-sugg">–</b><span>suggested skipped</span></div>
+        <div><b id="s-runs">–</b><span>scrolls done for you</span></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>🔥 Hot digest</h2>
+      <div id="digests"><span class="tag">Loading…</span></div>
+    </div>
+
+    <div class="card">
+      <h2>💬 Ask about your circles</h2>
+      <div id="chatlog"></div>
+      <div class="row">
+        <input id="q" placeholder="e.g. what's new with my close friends this week?" style="flex:1; margin-bottom:0">
+        <button id="btn-ask">Ask</button>
+      </div>
+      <div class="err" id="chat-err"></div>
+    </div>
+
+    <div class="card">
+      <h2>🧑‍🤝‍🧑 Latest from your feed (ad-free)</h2>
+      <div id="items"><span class="tag">Loading…</span></div>
+    </div>
+  </div>
+
+  <footer>
+    backend: Butterbase (db · auth · functions · AI gateway · payments) — graph: Neo4j — digests: RocketRide Cloud
+  </footer>
+</div>
+
+<script>
+const API = 'https://api.butterbase.ai';
+const APP = 'app_desa1zwpsx43';
+const LS = { at:'uf_access', rt:'uf_refresh', em:'uf_email' };
+const $ = (id) => document.getElementById(id);
+
+// ── auth ─────────────────────────────────────────────────────────────────────
+function tokens() { return { at: localStorage.getItem(LS.at), rt: localStorage.getItem(LS.rt) }; }
+function setTokens(d) {
+  localStorage.setItem(LS.at, d.access_token);
+  localStorage.setItem(LS.rt, d.refresh_token);
+  if (d.user?.email) localStorage.setItem(LS.em, d.user.email);
+}
+function clearTokens() { Object.values(LS).forEach(k => localStorage.removeItem(k)); }
+
+async function auth(path, body) {
+  const r = await fetch(`${API}/auth/${APP}/${path}`, {
+    method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(body) });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error?.message || j.message || `${path} failed (${r.status})`);
+  return j;
+}
+
+async function api(path, opts = {}, retried = false) {
+  const r = await fetch(`${API}/v1/${APP}/${path}`, {
+    ...opts,
+    headers: { 'Content-Type':'application/json', 'Authorization':`Bearer ${tokens().at}`, ...(opts.headers||{}) },
+  });
+  if (r.status === 401 && !retried && tokens().rt) {
+    try {
+      setTokens(await auth('refresh', { refresh_token: tokens().rt }));
+      return api(path, opts, true);
+    } catch { clearTokens(); showAuth(); throw new Error('session expired — log in again'); }
+  }
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw new Error(j.error?.message || j.error || `${path} failed (${r.status})`);
+  return j;
+}
+
+function showAuth() { $('view-auth').classList.remove('hidden'); $('view-app').classList.add('hidden'); $('whoami').classList.add('hidden'); }
+function showApp()  { $('view-auth').classList.add('hidden'); $('view-app').classList.remove('hidden'); $('whoami').classList.remove('hidden');
+                      $('user-email').textContent = localStorage.getItem(LS.em) || ''; refresh(); }
+
+$('btn-signup').onclick = async () => {
+  $('auth-err').textContent = '';
+  try {
+    await auth('signup', { email: $('email').value, password: $('password').value });
+    $('verify-row').classList.remove('hidden'); $('btn-verify').classList.remove('hidden');
+    $('auth-err').textContent = 'Check your email for the 6-digit code, then Verify.';
+  } catch (e) { $('auth-err').textContent = e.message; }
+};
+$('btn-verify').onclick = async () => {
+  try {
+    await auth('verify-email', { email: $('email').value, code: $('code').value });
+    setTokens(await auth('login', { email: $('email').value, password: $('password').value }));
+    showApp();
+  } catch (e) { $('auth-err').textContent = e.message; }
+};
+$('btn-login').onclick = async () => {
+  $('auth-err').textContent = '';
+  try { setTokens(await auth('login', { email: $('email').value, password: $('password').value })); showApp(); }
+  catch (e) { $('auth-err').textContent = e.message; }
+};
+$('btn-logout').onclick = () => { clearTokens(); showAuth(); };
+
+// ── payments (Butterbase Stripe Connect) ─────────────────────────────────────
+$('btn-subscribe').onclick = async () => {
+  try {
+    const sub = await api('billing/subscription', { method:'GET' }).catch(() => null);
+    if (sub && sub.status === 'active') { alert('You are already on Focus Pro 💚'); return; }
+    const plansResp = await api('billing/plans', { method:'GET' });
+    const plans = Array.isArray(plansResp) ? plansResp : (plansResp.plans || []);
+    if (!plans.length) { alert('No plan published yet — run deploy_backend.py --billing'); return; }
+    const out = await api('billing/subscribe', { method:'POST',
+      body: JSON.stringify({ planId: plans[0].id, successUrl: location.href, cancelUrl: location.href }) });
+    if (out.url) location.href = out.url; else alert(JSON.stringify(out));
+  } catch (e) { alert('subscribe: ' + e.message); }
+};
+
+// ── data views ───────────────────────────────────────────────────────────────
+function esc(s) { const d = document.createElement('div'); d.textContent = s ?? ''; return d.innerHTML; }
+
+async function refresh() {
+  try {
+    const d = await api('fn/digest-latest', { method:'GET' });
+    $('s-ads').textContent = d.shield?.ads ?? 0;
+    $('s-sugg').textContent = d.shield?.suggested ?? 0;
+    $('s-runs').textContent = d.shield?.runs ?? 0;
+
+    $('digests').innerHTML = (d.digests?.length ? d.digests : []).map(g => `
+      <div class="digest" data-id="${g.id}">
+        <h3>${esc(g.headline)}</h3>
+        <div class="meta">${new Date(g.created_at).toLocaleString()} · ${esc(g.source)} · ${esc(g.status)}</div>
+        <p>${esc(g.body || '')}</p>
+        <div class="row" style="margin-top:6px">
+          <button class="ghost tiny" onclick="feedback('${g.id}','interesting',this)">👍 interesting</button>
+          <button class="ghost tiny" onclick="feedback('${g.id}','not_interesting',this)">👎 not for me</button>
+        </div>
+      </div>`).join('') || '<span class="tag">No digests yet — run the scraper, then digest_run.py.</span>';
+
+    $('items').innerHTML = (d.recent_items?.length ? d.recent_items : []).map(i => `
+      <div class="item">
+        <span class="who">@${esc(i.handle || '?')}</span>
+        <span class="topic">${esc(i.topic || i.kind)}</span>
+        <div>${esc(i.brief || '')}</div>
+        <a href="${i.url}" onclick="visit(event,'${i.id}','${i.url}')">open on instagram ↗</a>
+      </div>`).join('') || '<span class="tag">Nothing scraped yet.</span>';
+  } catch (e) {
+    $('digests').innerHTML = `<span class="err">${esc(e.message)}</span>`;
+  }
+}
+
+// Click-throughs are the learning signal: record, then open.
+window.visit = async (ev, itemId, url) => {
+  ev.preventDefault();
+  api('fn/interactions', { method:'POST',
+    body: JSON.stringify({ action:'visited_link', item_id:itemId, context:{ url } }) }).catch(() => {});
+  window.open(url, '_blank');
+};
+window.feedback = async (digestId, verdict, btn) => {
+  btn.textContent = '✓';
+  api('fn/interactions', { method:'POST',
+    body: JSON.stringify({ action:'digest_feedback', context:{ digest_id:digestId, verdict } }) }).catch(() => {});
+};
+
+// ── chat ─────────────────────────────────────────────────────────────────────
+function addMsg(cls, text) {
+  const div = document.createElement('div');
+  div.className = 'msg ' + cls;
+  div.innerHTML = (cls === 'me' ? '<b>you</b> ' : '<b>focus</b> ') + '<span class="b">' + esc(text) + '</span>';
+  $('chatlog').appendChild(div);
+  $('chatlog').scrollTop = 1e9;
+}
+async function ask() {
+  const q = $('q').value.trim();
+  if (!q) return;
+  $('q').value = ''; $('chat-err').textContent = '';
+  addMsg('me', q);
+  try {
+    const out = await api('fn/chat', { method:'POST', body: JSON.stringify({ question: q }) });
+    addMsg('bot', out.answer || JSON.stringify(out));
+  } catch (e) { $('chat-err').textContent = e.message; }
+}
+$('btn-ask').onclick = ask;
+$('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') ask(); });
+
+// ── boot ─────────────────────────────────────────────────────────────────────
+tokens().at ? showApp() : showAuth();
+</script>
+</body>
+</html>

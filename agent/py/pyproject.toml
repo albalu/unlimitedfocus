@@ -1,0 +1,11 @@
+[project]
+name = "unlimitedfocus-agent"
+version = "0.1.0"
+description = "The agent that scrolls so you don't have to — scrapes feeds via your real Chrome into Butterbase + Neo4j"
+requires-python = ">=3.11"
+dependencies = [
+    "requests>=2.32",
+    "python-dotenv>=1.0",
+    "neo4j>=5.28",
+    "rocketride>=0.1",
+]

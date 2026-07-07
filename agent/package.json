@@ -1,0 +1,21 @@
+{
+  "name": "unlimitedfocus-agent",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "The agent that scrolls so you don't have to: scrapes your feeds, structures them into Butterbase + a Neo4j knowledge graph.",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "check": "node src/tools/check.js",
+    "scrape:instagram": "node src/scrapers/instagram.js",
+    "inspect": "node src/tools/inspect.js",
+    "graph:sync": "node src/tools/graph-sync.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.5",
+    "neo4j-driver": "^5.28.0",
+    "playwright-core": "^1.50.0"
+  }
+}

@@ -1,0 +1,37 @@
+{
+  "project_id": "unlimitedfocus-digest",
+  "version": 1,
+  "description": "Nightly digest of the user's social circles: items + Neo4j graph trends in (as a 'questions' payload), hot digest out. The LLM node is RocketRide's OpenAI-compatible connector pointed at the Butterbase AI gateway — so the pipeline calls Butterbase for inference (no separate model key).",
+  "components": [
+    {
+      "id": "webhook_1",
+      "provider": "webhook",
+      "name": "Digest Context In",
+      "config": { "hideForm": true, "mode": "Source", "parameters": {}, "type": "webhook", "name": "Digest Context In" }
+    },
+    {
+      "id": "llm_1",
+      "provider": "llm_openai_api",
+      "name": "Digest Writer (Butterbase gateway)",
+      "description": "Synthesizes the hot digest via the Butterbase AI gateway (OpenAI-compatible /chat/completions)",
+      "config": {
+        "profile": "custom",
+        "custom": {
+          "model": "anthropic/claude-3-haiku",
+          "base_url": "https://api.butterbase.ai/v1/app_desa1zwpsx43",
+          "modelTotalTokens": 32768,
+          "apikey": "${ROCKETRIDE_BB_KEY}"
+        },
+        "name": "Digest Writer"
+      },
+      "input": [{ "lane": "questions", "from": "webhook_1" }]
+    },
+    {
+      "id": "response_answers_1",
+      "provider": "response_answers",
+      "name": "Digest Out",
+      "config": { "laneName": "answers", "name": "Digest Out" },
+      "input": [{ "lane": "answers", "from": "llm_1" }]
+    }
+  ]
+}
