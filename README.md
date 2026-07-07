@@ -6,6 +6,27 @@ feed, Explore, and Reels are replaced by a focus message (or, optionally,
 stop after a scroll allowance) — direct messages, individual posts, profiles,
 and everything else work normally.
 
+## → The agent: [agent/README.md](agent/README.md)
+
+Blocking the feed is only half the answer. The **[Unlimited Focus
+agent](agent/README.md)** is the other half — and the part that matters most.
+
+Every social platform is engineered to keep you scrolling: infinite feeds,
+ads you never asked for, "suggested" strangers, algorithmic bait. The cost is
+real — hours of attention, and a feed where news about the people you actually
+care about is buried under everything designed to distract you. The agent
+inverts that. It scrolls *for* you, overnight, across your accounts; strips out
+every ad and suggested post; and distills what your **real connections** posted
+into one calm, ad-free hub — a searchable history, a knowledge graph of how your
+people and their events relate, and a short daily digest of what genuinely
+happened. Many addictive, distraction-optimized feeds collapse into a single
+personalized, relationship-based view — the way staying in touch was supposed
+to feel, before the algorithm got in the way.
+
+**Start here:** [agent/README.md](agent/README.md) walks through scraping your
+Instagram locally, generating a digest, and interacting with your ad-free
+history on the web.
+
 ## How it works
 
 Instead of fighting a site's internals (obfuscated class names, private API
@@ -126,14 +147,6 @@ Both modes:
 - [ ] Visiting a profile page and reopening a reel resets the item allowance
 - [ ] Toggling the extension off in the popup restores the page immediately
 - [ ] Switching modes in the popup swaps behavior without a reload
-
-## The agent (hackathon)
-
-The extension blocks the feed; [`agent/`](agent/README.md) is the counterpart
-that scrolls it **for** you — an AI agent that scrapes your feeds through your
-own Chrome session, shields you from ads/suggested content, and structures
-what your friends posted into Butterbase + a Neo4j knowledge graph, with
-digests and chat on top. See [agent/README.md](agent/README.md).
 
 ## Roadmap ideas
 
