@@ -103,7 +103,13 @@ def apply_schema() -> None:
 # Per-function deployment config. auth 'required' unless stated — digest-ingest
 # is called by RocketRide (not a Butterbase principal) and guards itself with
 # the X-UF-Secret header instead.
+#
+# Every auth-required function ALSO gets UF_OWNER_EMAIL: platform signup is
+# open, so "authenticated" only proves *some* user. The functions 403 anyone
+# whose email isn't the owner's — this instance's data (and its AI credits)
+# belong to one person. env() fails loudly if UF_OWNER_EMAIL is missing.
 def function_specs(ingest_secret: str) -> list[dict]:
+    owner = {"UF_OWNER_EMAIL": env("UF_OWNER_EMAIL")}
     common_neo4j = {
         "NEO4J_HTTP_URL": neo4j_http_url(),
         "NEO4J_DATABASE": neo4j_database(),
@@ -114,25 +120,26 @@ def function_specs(ingest_secret: str) -> list[dict]:
         {
             "name": "chat",
             "description": "Grounded Q&A over scraped items + Neo4j graph, via the Butterbase AI gateway",
-            "envVars": {"BUTTERBASE_API_KEY": env("BUTTERBASE_API_KEY"), **common_neo4j},
+            "envVars": {"BUTTERBASE_API_KEY": env("BUTTERBASE_API_KEY"), **owner, **common_neo4j},
             "trigger": {"type": "http", "config": {"auth": "required"}},
             "timeoutMs": 60000,
         },
         {
             "name": "interactions",
             "description": "Records interactions + curation (item/digest feedback, tombstone deletes incl. Neo4j cleanup)",
-            "envVars": common_neo4j,
+            "envVars": {**owner, **common_neo4j},
             "trigger": {"type": "http", "config": {"auth": "required"}},
         },
         {
             "name": "digest-latest",
             "description": "Hot digests + recent activity snapshot for the UI",
+            "envVars": owner,
             "trigger": {"type": "http", "config": {"auth": "required"}},
         },
         {
             "name": "graph-data",
             "description": "Social graph (contacts/topics/mention edges) shaped for NVL visualization",
-            "envVars": common_neo4j,
+            "envVars": {**owner, **common_neo4j},
             "trigger": {"type": "http", "config": {"auth": "required"}},
         },
         {

@@ -47,8 +47,21 @@ const ALLOWED = new Set(["visited_link", "asked_about", "item_feedback", "digest
 // Enforced in three places: UI queries filter it out, the digest ignores it,
 // and the scraper preloads snoozed handles and skips them at capture time.
 
-export default async function handler(req: Request, ctx: any): Promise<Response> {
+// Signup on this app is open and platform auth only proves *some* signed-up
+// user — so the handler additionally requires the caller to BE the owner.
+// UF_OWNER_EMAIL is injected at deploy time (deploy_backend.py), never
+// committed; if it is unset the guard fails closed.
+function ownerOnly(ctx: any): Response | null {
   if (!ctx.user) return json({ error: "unauthorized" }, 401);
+  const owner = (ctx.env.UF_OWNER_EMAIL || "").trim().toLowerCase();
+  const caller = (ctx.user.email || "").trim().toLowerCase();
+  if (!owner || caller !== owner) return json({ error: "forbidden" }, 403);
+  return null;
+}
+
+export default async function handler(req: Request, ctx: any): Promise<Response> {
+  const denied = ownerOnly(ctx);
+  if (denied) return denied;
   const body = await req.json().catch(() => ({}));
   const { action, item_id = null, context = {} } = body;
   if (!ALLOWED.has(action)) return json({ error: `action must be one of ${[...ALLOWED].join(", ")}` }, 400);

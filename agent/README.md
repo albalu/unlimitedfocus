@@ -44,7 +44,16 @@ Step 3 is a hosted web app anyone you share it with can open.
   NEO4J_PASSWORD=
   NEO4J_INSTANCE_NAME=
   ROCKET_RIDE_API_KEY=     # the cloud digest pipeline
+  UF_OWNER_EMAIL=          # the ONE account allowed to use your deployed web app
   ```
+
+  **Why `UF_OWNER_EMAIL` matters:** Butterbase's signup endpoint is open — anyone
+  who finds your app can register and would otherwise pass the functions'
+  "authenticated" check, read your scraped data, and spend your AI-gateway
+  credits. Every backend function therefore requires the signed-in email to
+  match `UF_OWNER_EMAIL` (injected at deploy time by `deploy_backend.py`,
+  never committed) and returns 403 to everyone else — and fails closed if
+  the variable is unset. Sign up in the web app with this same email.
 
 **Verify everything is wired up**
 

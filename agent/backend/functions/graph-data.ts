@@ -88,8 +88,21 @@ const MENTIONED_COLOR = "#8b96a5";     // people only seen via mentions
 const TOPIC_COLOR = "#5eead4";
 const MENTION_EDGE_COLOR = "#fca5a5";
 
-export default async function handler(req: Request, ctx: any): Promise<Response> {
+// Signup on this app is open and platform auth only proves *some* signed-up
+// user — so the handler additionally requires the caller to BE the owner.
+// UF_OWNER_EMAIL is injected at deploy time (deploy_backend.py), never
+// committed; if it is unset the guard fails closed.
+function ownerOnly(ctx: any): Response | null {
   if (!ctx.user) return json({ error: "unauthorized" }, 401);
+  const owner = (ctx.env.UF_OWNER_EMAIL || "").trim().toLowerCase();
+  const caller = (ctx.user.email || "").trim().toLowerCase();
+  if (!owner || caller !== owner) return json({ error: "forbidden" }, 403);
+  return null;
+}
+
+export default async function handler(req: Request, ctx: any): Promise<Response> {
+  const denied = ownerOnly(ctx);
+  if (denied) return denied;
   if (req.method === "POST") return mutate(req, ctx);
 
   const [posters, topicEdges, mentionEdges, snoozedRows] = await Promise.all([
