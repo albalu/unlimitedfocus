@@ -100,16 +100,49 @@ def apply_schema() -> None:
     print("✓ schema applied (declarative diff, idempotent)")
 
 
+def apply_owner_rls() -> None:
+    """Lock every data table to the owner at the database layer, so the
+    auto-generated Data API (`GET /v1/<app>/<table>`) is closed to strangers —
+    not just the functions. Without this, ANY signed-up user (signup is open)
+    could read the tables directly, bypassing the function guard entirely.
+
+    Model: RLS on, one policy per table admitting only the owner's app-user id
+    for end-user (butterbase_user) requests. The platform auto-adds a service
+    bypass on enable, so the scraper and this script (platform API key) keep
+    full access; the owner's own function calls run as butterbase_user with the
+    owner id and pass. Rebuilt each deploy (drop → enable → policy) to stay
+    idempotent. env() fails loudly if UF_OWNER_USER_ID is missing."""
+    owner_id = env("UF_OWNER_USER_ID")
+    expr = f"current_user_id() = '{owner_id}'"
+    tables = list(json.loads(SCHEMA_FILE.read_text())["tables"].keys())
+    for t in tables:
+        # Drop any prior RLS/policies so re-runs don't collide on policy name.
+        # (This API rejects an empty JSON body, so pass {}.)
+        call("DELETE", f"/v1/{APP}/rls/{t}", {}, ok=(200, 404))
+        call("POST", f"/v1/{APP}/rls/enable", {"table_name": t}, ok=(200, 201))
+        call("POST", f"/v1/{APP}/rls/policies", {
+            "table_name": t,
+            "policy_name": f"{t}_owner_only",
+            "command": "ALL",
+            "role": "user",
+            "using_expression": expr,
+            "with_check_expression": expr,
+        }, ok=(200, 201))
+    print(f"✓ owner-only RLS on {len(tables)} table(s) (Data API closed to non-owners)")
+
+
 # Per-function deployment config. auth 'required' unless stated — digest-ingest
 # is called by RocketRide (not a Butterbase principal) and guards itself with
 # the X-UF-Secret header instead.
 #
-# Every auth-required function ALSO gets UF_OWNER_EMAIL: platform signup is
+# Every auth-required function ALSO gets UF_OWNER_USER_ID: platform signup is
 # open, so "authenticated" only proves *some* user. The functions 403 anyone
-# whose email isn't the owner's — this instance's data (and its AI credits)
-# belong to one person. env() fails loudly if UF_OWNER_EMAIL is missing.
+# whose app-user id isn't the owner's — this instance's data (and its AI
+# credits) belong to one person. (ctx.user carries only the id, not the email,
+# which is why we key off the id.) env() fails loudly if it is missing. This is
+# the function-layer guard; apply_owner_rls() closes the raw Data API too.
 def function_specs(ingest_secret: str) -> list[dict]:
-    owner = {"UF_OWNER_EMAIL": env("UF_OWNER_EMAIL")}
+    owner = {"UF_OWNER_USER_ID": env("UF_OWNER_USER_ID")}
     common_neo4j = {
         "NEO4J_HTTP_URL": neo4j_http_url(),
         "NEO4J_DATABASE": neo4j_database(),
@@ -220,6 +253,7 @@ def main() -> None:
     print(f"deploying backend to {APP} …")
     ingest_secret = ensure_ingest_secret()
     apply_schema()
+    apply_owner_rls()
     deploy_functions(ingest_secret)
     set_cors()
     smoke(ingest_secret)

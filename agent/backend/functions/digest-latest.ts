@@ -10,13 +10,15 @@ function json(body: unknown, status = 200): Response {
 
 // Signup on this app is open and platform auth only proves *some* signed-up
 // user — so the handler additionally requires the caller to BE the owner.
-// UF_OWNER_EMAIL is injected at deploy time (deploy_backend.py), never
-// committed; if it is unset the guard fails closed.
+// ctx.user carries only { id } (no email), so we match on the owner's
+// app-user id, injected at deploy time (deploy_backend.py) and never
+// committed. Belt to the RLS suspenders: the tables themselves only admit
+// this same id, so the raw Data API is closed to strangers too. Fails closed
+// if UF_OWNER_USER_ID is unset.
 function ownerOnly(ctx: any): Response | null {
   if (!ctx.user) return json({ error: "unauthorized" }, 401);
-  const owner = (ctx.env.UF_OWNER_EMAIL || "").trim().toLowerCase();
-  const caller = (ctx.user.email || "").trim().toLowerCase();
-  if (!owner || caller !== owner) return json({ error: "forbidden" }, 403);
+  const owner = (ctx.env.UF_OWNER_USER_ID || "").trim();
+  if (!owner || ctx.user.id !== owner) return json({ error: "forbidden" }, 403);
   return null;
 }
 

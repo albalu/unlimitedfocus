@@ -44,16 +44,31 @@ Step 3 is a hosted web app anyone you share it with can open.
   NEO4J_PASSWORD=
   NEO4J_INSTANCE_NAME=
   ROCKET_RIDE_API_KEY=     # the cloud digest pipeline
-  UF_OWNER_EMAIL=          # the ONE account allowed to use your deployed web app
+  UF_OWNER_EMAIL=          # your account (for humans; not enforced directly)
+  UF_OWNER_USER_ID=        # your Butterbase app-user id — the real guard
   ```
 
-  **Why `UF_OWNER_EMAIL` matters:** Butterbase's signup endpoint is open — anyone
-  who finds your app can register and would otherwise pass the functions'
-  "authenticated" check, read your scraped data, and spend your AI-gateway
-  credits. Every backend function therefore requires the signed-in email to
-  match `UF_OWNER_EMAIL` (injected at deploy time by `deploy_backend.py`,
-  never committed) and returns 403 to everyone else — and fails closed if
-  the variable is unset. Sign up in the web app with this same email.
+  **Single-owner lockdown (`UF_OWNER_USER_ID`).** Butterbase's signup endpoint is
+  open and can't be switched off — anyone who finds your app can register and get
+  a valid token. So the backend admits exactly one identity, your app-user id, at
+  **two layers** (both set up by `deploy_backend.py`, both failing closed if the
+  id is unset):
+
+  1. **Functions** — every backend function 403s any caller whose `ctx.user.id`
+     isn't yours. (The token carries only the id, not the email — that's why the
+     id, not `UF_OWNER_EMAIL`, is what's enforced.)
+  2. **Data API** — owner-only **RLS** on every table, so the auto-generated
+     `GET /v1/<app>/<table>` returns nothing to anyone else. Without this a
+     stranger's token could read your tables directly, bypassing the functions.
+
+  Your own service key (the scraper, this deploy script) bypasses RLS as
+  designed, so scraping keeps working. **Non-owner accounts can still be created,
+  but they're inert: no data, no AI spend.**
+
+  **Getting your `UF_OWNER_USER_ID`:** sign up once in the web app with
+  `UF_OWNER_EMAIL`, then read the `user.id` field from the login response (or ask
+  Butterbase support / the MCP `manage_auth_users` list). Put it in `.env` and
+  run `deploy_backend.py`.
 
 **Verify everything is wired up**
 
@@ -193,7 +208,7 @@ These are already deployed; rerun after a change (all idempotent):
 
 ```bash
 cd agent/py
-uv run deploy_backend.py         # schema + functions + CORS; add --billing for the Stripe plan
+uv run deploy_backend.py         # schema + owner-only RLS + functions + CORS; add --billing for the Stripe plan
 uv run deploy_rocketride.py      # (re)deploy the digest pipeline to RocketRide Cloud
 uv run graph_sync.py             # backfill Neo4j for any items captured with --no-graph
 ```
