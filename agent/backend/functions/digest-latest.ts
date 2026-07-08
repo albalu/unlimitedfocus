@@ -16,7 +16,7 @@ export default async function handler(_req: Request, ctx: any): Promise<Response
        FROM digests ORDER BY created_at DESC LIMIT 8`
   );
   const items = await ctx.db.query(
-    `SELECT i.id, i.kind, i.url, i.topic, i.brief, i.posted_at, i.captured_at,
+    `SELECT i.id, i.kind, i.url, i.topic, i.brief, i.detail, i.posted_at, i.captured_at,
             c.handle, c.id AS contact_id
        FROM items i LEFT JOIN contacts c ON c.id = i.contact_id
       WHERE i.deleted_at IS NULL

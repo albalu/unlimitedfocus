@@ -65,6 +65,15 @@ this drift: you can view the item you opened plus `itemAllowance` more
 when they render as dialogs. Returning to an already-viewed item lifts the
 wall; visiting any normal page (profile, DMs, ...) resets the session.
 
+**Working with the agent** — when the scraper (`agent/py/scrape_instagram.py`)
+runs in the same browser, it pauses the extension for the walk and turns it
+back on when it finishes or fails. The pause is a separate, time-boxed value
+in `chrome.storage.local` (set through a `postMessage` bridge in
+`src/content/agent.js`); the master switch is never touched, so an extension
+you turned off yourself stays off, and a crashed agent can only *delay*
+refocus — the pause expires on its own (default 45 min, capped at 120). While
+paused, the popup shows "Paused by your agent".
+
 ## Install (Chrome / Edge / Brave)
 
 1. Open `chrome://extensions`
@@ -87,6 +96,8 @@ src/
     blocker.js         "Hide the feed" engine: hides <main>, shows the message
     blocker.css        The attribute-gated rule that hides <main>
     limiter.js         "Limit scrolling" engine: scroll cap + banner
+    agent.js           Page bridge: lets the user's own agent pause/resume
+                       the extension for a scrape (time-boxed, in storage.local)
     index.js           Entry point: matches site rules, picks the engine for
                        the current mode, tracks SPA navigation and settings
   popup/               Toolbar popup UI (settings)

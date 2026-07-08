@@ -19,11 +19,22 @@
   // resets the session.
   let allowedItems = null;
 
+  // While the user's agent holds a pause, act as if disabled — and schedule
+  // a re-check for the moment it expires, so a crashed agent can never leave
+  // focus off (no storage event fires on expiry; only this timer catches it).
+  let pauseTimer = null;
+
   function applyState() {
     const rules = globalThis.UFSiteRules;
     limiter.maxScreens = settings.maxScreens;
     blocker.message = settings.message;
-    const siteEnabled = settings.enabled && settings.sites[site.id] !== false;
+    const pauseMs = globalThis.UFSettings.agentPauseRemaining(settings);
+    clearTimeout(pauseTimer);
+    if (pauseMs > 0) {
+      pauseTimer = setTimeout(applyState, pauseMs + 250);
+    }
+    const siteEnabled =
+      settings.enabled && pauseMs === 0 && settings.sites[site.id] !== false;
     const path = location.pathname;
 
     let engine = "none";

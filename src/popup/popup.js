@@ -10,6 +10,7 @@
   const maxScreensInput = document.getElementById("maxScreens");
   const allowanceRow = document.getElementById("allowanceRow");
   const sitesList = document.getElementById("sites");
+  const agentNote = document.getElementById("agentNote");
 
   maxScreensInput.min = String(globalThis.UFSettings.MIN_SCREENS);
   maxScreensInput.max = String(globalThis.UFSettings.MAX_SCREENS);
@@ -21,6 +22,12 @@
   }
 
   function render() {
+    const pauseMs = globalThis.UFSettings.agentPauseRemaining(settings);
+    agentNote.hidden = pauseMs === 0;
+    if (pauseMs > 0) {
+      const mins = Math.ceil(pauseMs / 60_000);
+      agentNote.textContent = `Paused by your agent — back on in ~${mins} min.`;
+    }
     enabledInput.checked = settings.enabled;
     for (const input of modeInputs) input.checked = input.value === settings.mode;
     messageInput.value = settings.message;

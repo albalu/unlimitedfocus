@@ -12,9 +12,20 @@ const read = (rel) => fs.readFileSync(path.join(__dirname, "..", rel), "utf8");
 // eslint-disable-next-line no-eval
 eval(read("src/shared/sites.js"));
 let stored = {};
+let localStored = {};
 globalThis.chrome = {
   storage: {
-    sync: { get: async () => stored },
+    sync: {
+      get: async () => stored,
+      set: async (obj) => Object.assign(stored, obj),
+    },
+    local: {
+      get: async () => ({ ...localStored }),
+      set: async (obj) => Object.assign(localStored, obj),
+      remove: async (key) => {
+        delete localStored[key];
+      },
+    },
     onChanged: { addListener() {} },
   },
 };
@@ -96,6 +107,43 @@ const check = (cond, name) => {
   stored = { message: "x".repeat(500) };
   s = await globalThis.UFSettings.load();
   check(s.message.length === 140, "long message clamped");
+
+  // Agent pause: time-boxed, storage.local only, never written to sync
+  const S = globalThis.UFSettings;
+  s = await S.load();
+  check(s.agentPausedUntil === 0, "no pause by default");
+  check(S.agentPauseRemaining(s) === 0, "no pause remaining by default");
+
+  await S.setAgentPause(30);
+  s = await S.load();
+  const remaining = S.agentPauseRemaining(s);
+  check(remaining > 29 * 60_000 && remaining <= 30 * 60_000, "pause set for ~30 min");
+
+  await S.setAgentPause(9999);
+  s = await S.load();
+  check(
+    S.agentPauseRemaining(s) <= S.MAX_AGENT_PAUSE_MINUTES * 60_000,
+    "pause TTL clamped to max"
+  );
+  await S.setAgentPause("bogus");
+  s = await S.load();
+  const clampedLow = S.agentPauseRemaining(s);
+  check(clampedLow > 0 && clampedLow <= 60_000, "bogus TTL clamps to minimum");
+
+  localStored = { agentPausedUntil: Date.now() - 1000 };
+  s = await S.load();
+  check(S.agentPauseRemaining(s) === 0, "expired pause counts as not paused");
+
+  await S.setAgentPause(30);
+  await S.clearAgentPause();
+  s = await S.load();
+  check(S.agentPauseRemaining(s) === 0, "clearAgentPause resumes");
+
+  stored = {};
+  await S.setAgentPause(30);
+  s = await S.load();
+  await S.save(s);
+  check(!("agentPausedUntil" in stored), "save() never leaks the pause into sync");
 
   console.log(fails === 0 ? "ALL PASS" : `${fails} FAILURES`);
   process.exitCode = fails === 0 ? 0 : 1;

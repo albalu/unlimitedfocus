@@ -16,6 +16,11 @@ Capture-then-process, backed by a daily file cache (see cache.py):
      leftovers from earlier runs today) -> claude CLI extraction -> Butterbase
      upsert -> Neo4j MERGE -> marked committed in the cache.
 
+Plays nice with the Unlimited Focus extension in the same browser: if it is
+actively guarding instagram, the run pauses it (time-boxed, master switch
+untouched) for the walks and turns it back on at exit — success or failure.
+An extension the user turned off themselves is left off.
+
 Safe to rerun any time: capture skips anything in today's cache or the DB;
 processing picks up whatever previous runs left uncommitted (even stories that
 have since expired from Instagram). Cache dirs older than 7 days purge at
@@ -48,6 +53,7 @@ import requests
 import butterbase as bb
 import cache
 import chrome
+import extension
 import graph
 import uf_config as cfg
 from extract import extract_item
@@ -114,16 +120,32 @@ _TRAY_CLICK_JS = r"""(function(){
   return JSON.stringify({count: 0, clicked: false, diag: diag});
 })()"""
 
+# Media grab must target the ACTIVE story: the viewer keeps neighbor users'
+# cards mounted (smaller, off-center) and briefly shows the PREVIOUS segment's
+# image while the new one loads. So prefer the largest img whose center sits in
+# the middle band of the viewport; the caller additionally rejects an img URL
+# identical to the previous segment's (stale frame) and re-polls.
 _STORY_STATE_JS = r"""(function(){
   var m = {url: location.href};
   var t = document.querySelector('time[datetime]');
   if (t) m.datetime = t.getAttribute('datetime');
-  var best = null, imgs = document.querySelectorAll('img');
+  var cx = window.innerWidth / 2;
+  var best = null, bestW = 0, centered = null, centeredW = 0;
+  var imgs = document.querySelectorAll('img');
   for (var i = 0; i < imgs.length; i++) {
     var im = imgs[i];
-    if ((im.naturalWidth || 0) > ((best && best.naturalWidth) || 0)) best = im;
+    var w = im.naturalWidth || 0;
+    if (w < 200) continue;
+    var r = im.getBoundingClientRect();
+    if (r.width < 100) continue;
+    if (w > bestW) { best = im; bestW = w; }
+    var mid = r.left + r.width / 2;
+    if (Math.abs(mid - cx) < window.innerWidth * 0.25 && w > centeredW) {
+      centered = im; centeredW = w;
+    }
   }
-  if (best && (best.naturalWidth || 0) >= 200) m.img = best.currentSrc || best.src;
+  var pick = centered || best;
+  if (pick) m.img = pick.currentSrc || pick.src;
   var vid = document.querySelector('video');
   if (vid) {
     m.video = true;
@@ -436,6 +458,7 @@ def scrape_stories(ctx: dict) -> None:
     walked = 0
     hops, max_hops = 0, cfg.MAX_STORIES * 8
     last_id, stuck = None, 0
+    last_img_url = None  # stale-frame guard: previous segment's media URL
 
     def advance(tap: bool = False):
         # The VISIBLE Next control is what demonstrably advances (hidden 0x0
@@ -510,7 +533,26 @@ def scrape_stories(ctx: dict) -> None:
 
         try:
             state = chrome.js_json(_STORY_STATE_JS) or {}
-            image_path = download_media(state.get("img"), f"story_{story_id}")
+            # Stale-frame guard: a NEW segment can never have the SAME media URL
+            # as the previous one — if it does, the viewer is still showing the
+            # old image (this produced identical wrong briefs across many
+            # items). Re-poll while it loads; give up to text-only extraction
+            # rather than describing the wrong image.
+            img_url = state.get("img")
+            if img_url and img_url == last_img_url:
+                for _ in range(3):
+                    time.sleep(0.45)
+                    state = chrome.js_json(_STORY_STATE_JS) or state
+                    img_url = state.get("img")
+                    if img_url != last_img_url:
+                        break
+                if img_url == last_img_url:
+                    log(f"  ~ story {story_id}: image still stale after retries — capturing text-only")
+                    img_url = None
+            if img_url:
+                last_img_url = img_url
+
+            image_path = download_media(img_url, f"story_{story_id}")
             capture(ctx, dict(
                 kind="story", username=username, external_id=story_id,
                 url=f"https://www.instagram.com/stories/{username}/{story_id}/",
@@ -717,6 +759,7 @@ def main() -> None:
     chrome.new_tab("https://www.instagram.com/")
     time.sleep(random.uniform(3.0, 5.0))
     ctx["tab_open"] = True
+    ctx["uf_paused"] = False
 
     def close_our_tab():
         # Guarded: close_tab targets the LAST tab of window 1, so a second call
@@ -725,13 +768,45 @@ def main() -> None:
             chrome.close_tab()
             ctx["tab_open"] = False
 
+    def pause_extension():
+        """If Unlimited Focus is actively guarding instagram, pause it for the
+        walks. Only pauses what is ON — a user-disabled extension stays off,
+        because the pause layer never touches the master switch."""
+        state = extension.status()
+        if state is None:
+            log("unlimited focus extension not detected — nothing to pause")
+        elif extension.is_blocking(state):
+            if extension.pause(cfg.EXTENSION_PAUSE_MINUTES) is not None:
+                ctx["uf_paused"] = True
+                log(f"🧘 unlimited focus paused for this run "
+                    f"(crash backstop: re-enables itself in {cfg.EXTENSION_PAUSE_MINUTES} min)")
+                time.sleep(random.uniform(1.5, 2.5))  # let the unblocked feed render
+            else:
+                log("⚠ could not pause unlimited focus — proceeding, but the feed may be hidden")
+        else:
+            log("unlimited focus is already off — leaving it off")
+
+    def restore_extension():
+        # Needs our tab: the bridge lives in its content script. Hence called
+        # BEFORE close_our_tab on every path.
+        if not ctx["uf_paused"]:
+            return
+        ctx["uf_paused"] = False
+        if extension.resume() is not None:
+            log("🧘 unlimited focus back on")
+        else:
+            log(f"⚠ could not turn unlimited focus back on — it re-enables itself "
+                f"within {cfg.EXTENSION_PAUSE_MINUTES} min")
+
     try:
         if "/accounts/login" in chrome.tab_url():
             raise SystemExit("Instagram is not logged in in your Chrome — log in, then rerun.")
+        pause_extension()
         chrome.js(_DISMISS_JS)
 
         scrape_stories(ctx)
         scrape_feed(ctx)
+        restore_extension()
         close_our_tab()  # walks done — browser not needed for processing
 
         process_pending(ctx)
@@ -745,6 +820,7 @@ def main() -> None:
             pass
         raise
     finally:
+        restore_extension()
         close_our_tab()
         graph.close_graph()
 

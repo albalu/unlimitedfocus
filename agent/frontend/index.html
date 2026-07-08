@@ -33,6 +33,11 @@
   .item .who { color:var(--accent2); font-weight:600; }
   .item .ihead { gap:8px; }
   .item .when { margin-left:auto; color:var(--dim); font-size:12px; white-space:nowrap; }
+  .more > summary { padding:2px 0; }
+  .more > summary .hint { color:var(--dim); font-size:12px; margin-left:6px; }
+  .more[open] > summary .hint { display:none; }
+  .more .detail { color:var(--dim); font-size:13.5px; white-space:pre-wrap; padding:6px 0 2px 14px;
+    border-left:2px solid var(--line); margin-top:4px; }
   .item .topic { display:inline-block; background:#0b2f2b; color:var(--accent); border-radius:99px;
     padding:1px 9px; font-size:12px; margin-left:6px; }
   .item a { color:var(--dim); font-size:12px; text-decoration:none; }
@@ -255,7 +260,12 @@ async function refresh() {
               <span class="topic">${esc(i.topic || i.kind)}</span>
               <span class="when" title="${timeLabel(i).title}">${timeLabel(i).text}</span>
             </div>
-            <div>${esc(i.brief || '')}</div>
+            ${i.detail ? `
+            <details class="more">
+              <summary>${esc(i.brief || '')}<span class="hint">⌄ more</span></summary>
+              <div class="detail">${esc(i.detail)}</div>
+            </details>` : `
+            <div>${esc(i.brief || '')}</div>`}
             <div class="row acts">
               <a href="${i.url}" onclick="visit(event,'${i.id}','${i.url}')">open ↗</a>
               <button onclick="itemFeedback('${i.id}','interesting',this)" title="interesting / relevant">👍</button>

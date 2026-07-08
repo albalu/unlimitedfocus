@@ -26,3 +26,9 @@ MAX_NEW_POSTS = _int("UF_MAX_POSTS", 15)
 MAX_STORIES = _int("UF_MAX_STORIES", 15)
 DUP_STREAK_STOP = _int("UF_DUP_STREAK", 8)   # consecutive known posts -> reached old territory
 MAX_SCROLL_ROUNDS = _int("UF_MAX_SCROLLS", 40)
+
+# How long a run may keep the Unlimited Focus extension paused. The run turns
+# it back on explicitly at exit (success or failure); this TTL is the crash
+# backstop — the extension re-enables itself when it expires. Must fit the
+# longest plausible walk phase, and the extension clamps it to <= 120.
+EXTENSION_PAUSE_MINUTES = _int("UF_EXT_PAUSE_MIN", 45)
