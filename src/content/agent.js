@@ -26,6 +26,16 @@
  */
 (() => {
   const ACK_ATTR = "data-uf-agent-ack";
+  const BRIDGE_ATTR = "data-uf-agent-bridge";
+
+  // Presence marker, stamped at load: lets the page (and the agent driving
+  // it) tell apart "bridge available" / "extension there but predates the
+  // bridge" / "no extension" without a message round-trip. Carries the build
+  // version so a stale reload is diagnosable.
+  document.documentElement.setAttribute(
+    BRIDGE_ATTR,
+    (chrome.runtime?.getManifest?.() || { version: "?" }).version
+  );
 
   async function handle(msg) {
     if (msg.cmd === "pause") {

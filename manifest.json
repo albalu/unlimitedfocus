@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Unlimited Focus",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "Puts an end to infinite scroll on distracting feeds. The rest of the site (DMs, posts, profiles) keeps working normally.",
   "permissions": ["storage"],
   "icons": {

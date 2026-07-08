@@ -94,6 +94,33 @@ except Exception as exc:
         'in Chrome enable: menu View → Developer → "Allow JavaScript from Apple Events" '
         "(and grant Terminal automation permission if macOS asks)")
 
+# 6. Unlimited Focus extension bridge (optional — but a blocker that can't be
+# paused hides the feed and the scraper captures nothing, so verify loudly)
+try:
+    import time
+
+    import chrome
+    import extension
+
+    chrome.new_tab("https://www.instagram.com/")
+    time.sleep(6)  # content scripts inject at document_idle
+    p = extension.probe()
+    verdict, state = extension.detect()
+    chrome.close_tab()
+    if verdict == "ok":
+        guard = ("actively guarding — scraper will pause/resume it"
+                 if extension.is_blocking(state) else "installed, currently off")
+        ok("unlimited focus bridge", f"v{p.get('bridge')} — {guard}")
+    elif verdict == "stale":
+        bad("unlimited focus bridge",
+            "extension present but its agent bridge is not answering "
+            "(loaded build predates src/content/agent.js?)",
+            "chrome://extensions → Unlimited Focus → reload (↻), then rerun this check")
+    else:
+        ok("unlimited focus extension", "not detected — nothing the scraper needs to pause")
+except Exception as exc:
+    bad("unlimited focus bridge", str(exc)[:200])
+
 print("\nall required checks passed — ready to scrape" if failures == 0
       else f"\n{failures} required check(s) failed")
 sys.exit(0 if failures == 0 else 1)

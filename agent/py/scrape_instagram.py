@@ -771,15 +771,27 @@ def main() -> None:
     def pause_extension():
         """If Unlimited Focus is actively guarding instagram, pause it for the
         walks. Only pauses what is ON — a user-disabled extension stays off,
-        because the pause layer never touches the master switch."""
-        state = extension.status()
-        if state is None:
+        because the pause layer never touches the master switch. A build too
+        old to have the bridge fails the run loudly (owner's rule): its
+        blocker keeps the feed display:none and every capture comes up empty."""
+        verdict, state = extension.detect()
+        if verdict == "absent":
             log("unlimited focus extension not detected — nothing to pause")
+        elif verdict == "stale":
+            raise SystemExit(
+                "Unlimited Focus is installed but not answering its agent bridge — the "
+                "loaded build predates src/content/agent.js, and its blocker would hide "
+                "everything this run tries to capture.\n"
+                "Fix: chrome://extensions → Unlimited Focus → reload (↻), then rerun. "
+                "Verify with: uv run check.py"
+            )
         elif extension.is_blocking(state):
             if extension.pause(cfg.EXTENSION_PAUSE_MINUTES) is not None:
                 ctx["uf_paused"] = True
                 log(f"🧘 unlimited focus paused for this run "
                     f"(crash backstop: re-enables itself in {cfg.EXTENSION_PAUSE_MINUTES} min)")
+                if not extension.wait_until_unhidden():
+                    log("⚠ feed still hidden after the pause ack — captures may come up empty")
                 time.sleep(random.uniform(1.5, 2.5))  # let the unblocked feed render
             else:
                 log("⚠ could not pause unlimited focus — proceeding, but the feed may be hidden")

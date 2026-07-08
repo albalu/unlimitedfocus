@@ -23,6 +23,23 @@ import chrome
 
 _ACK_ATTR = "data-uf-agent-ack"
 
+# Synchronous DOM markers the extension leaves on <html>:
+#   data-uf-agent-bridge   stamped by agent.js at load, value = build version
+#                          (only builds >= 0.5 have the bridge)
+#   data-uf-feed-hidden /  set by the blocker while it is actively hiding
+#   data-uf-main-hidden    this page (block mode on a feed path)
+_PROBE_JS = """(function(){
+  var root = document.documentElement;
+  return JSON.stringify({
+    bridge: root.getAttribute('data-uf-agent-bridge'),
+    hidden: root.hasAttribute('data-uf-feed-hidden')
+         || root.hasAttribute('data-uf-main-hidden'),
+  });
+})()"""
+
+_UNHIDDEN_COND = ("!document.documentElement.hasAttribute('data-uf-feed-hidden') && "
+                  "!document.documentElement.hasAttribute('data-uf-main-hidden')")
+
 
 def _command(cmd: str, ttl_minutes: int | None = None, timeout: float = 10.0) -> dict | None:
     """Send one bridge command; return the extension's state dict
@@ -50,6 +67,37 @@ def _command(cmd: str, ttl_minutes: int | None = None, timeout: float = 10.0) ->
             if ack.get("id") == req_id:
                 return ack.get("state") or {}
     return None
+
+
+def probe() -> dict:
+    """Cheap, synchronous DOM look: {'bridge': version-or-None, 'hidden': bool}.
+    No message round-trip; safe on any page."""
+    try:
+        return chrome.js_json(_PROBE_JS) or {}
+    except Exception:
+        return {}
+
+
+def detect() -> tuple[str, dict | None]:
+    """Classify what's in this browser:
+      ('ok', state)    bridge present and answering — state as from status()
+      ('stale', None)  the extension is here (bridge marker or an actively
+                       hiding blocker) but commands go unanswered — almost
+                       always a loaded build that predates the bridge and
+                       needs a reload at chrome://extensions
+      ('absent', None) no sign of the extension on this page
+    """
+    p = probe()
+    if p.get("bridge"):
+        state = status()
+        return ("ok", state) if state is not None else ("stale", None)
+    return ("stale", None) if p.get("hidden") else ("absent", None)
+
+
+def wait_until_unhidden(timeout: float = 10.0) -> bool:
+    """After a pause ack, wait for the blocker to actually lift (its hiding
+    markers to leave <html>). Trivially true when it wasn't hiding."""
+    return chrome.wait_for(_UNHIDDEN_COND, timeout)
 
 
 def status() -> dict | None:
