@@ -64,15 +64,10 @@ def ensure_ingest_secret() -> str:
 
 
 def apply_schema() -> None:
-    current = call("GET", f"/v1/{APP}/schema")
-    tables = set((current.get("tables") or current.get("schema", {}).get("tables") or {}).keys())
-    wanted = set(json.loads(SCHEMA_FILE.read_text())["tables"].keys())
-    if wanted <= tables:
-        print(f"✓ schema up to date ({len(tables)} tables)")
-        return
-    print(f"  applying schema (missing: {sorted(wanted - tables)}) …")
+    # Always apply: the server diffs declaratively (idempotent), and a
+    # table-name check would miss column additions.
     call("POST", f"/v1/{APP}/schema/apply", {"schema": json.loads(SCHEMA_FILE.read_text()), "name": "deploy_backend"})
-    print("✓ schema applied")
+    print("✓ schema applied (declarative diff, idempotent)")
 
 
 # Per-function deployment config. auth 'required' unless stated — digest-ingest
@@ -94,7 +89,8 @@ def function_specs(ingest_secret: str) -> list[dict]:
         },
         {
             "name": "interactions",
-            "description": "Records user interactions (link visits, digest feedback) for preference learning",
+            "description": "Records interactions + curation (item/digest feedback, tombstone deletes incl. Neo4j cleanup)",
+            "envVars": common_neo4j,
             "trigger": {"type": "http", "config": {"auth": "required"}},
         },
         {

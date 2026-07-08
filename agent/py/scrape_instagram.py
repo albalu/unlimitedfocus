@@ -383,6 +383,20 @@ def process_item(ctx: dict, *, kind: str, username: str, external_id: str, url: 
 
 # ── stories (walk only — processing happens in process_pending) ───────────────
 
+def _preload_snoozed_handles() -> set[str]:
+    """Posters the user snoozed in the UI (contacts.snoozed_until in the
+    future). The scraper honors this at capture time: no screenshot, no
+    extraction tokens, no DB/graph writes for muted posters."""
+    now = dt.datetime.now(dt.timezone.utc).isoformat()
+    rows = bb.select("contacts", {
+        "platform": f"eq.{cfg.PLATFORM_INSTAGRAM}",
+        "snoozed_until": f"gt.{now}",
+        "select": "handle",
+        "limit": 1000,
+    })
+    return {r["handle"] for r in rows}
+
+
 def _preload_known_story_ids() -> set[str]:
     """One query instead of a per-segment HTTP dedupe check (stories only live
     24h, so the most recent rows more than cover the tray)."""
@@ -468,6 +482,11 @@ def scrape_stories(ctx: dict) -> None:
             continue
         last_id, stuck = story_id, 0
 
+        if username in ctx["snoozed"]:
+            ctx["stats"]["snoozed_skipped"] += 1
+            vlog(f"  🔕 skipped story by snoozed @{username}")
+            advance()
+            continue
         if story_id in ctx["cache_captured"]:  # captured earlier today — data already on disk
             advance()
             continue
@@ -562,6 +581,10 @@ def scrape_feed(ctx: dict) -> None:
                 log(f"  ~ skipped {shortcode}: could not resolve author (will retry next run)")
                 vlog(f"    card text head: {text[:150]!r}")
                 continue
+            if username in ctx["snoozed"]:
+                ctx["stats"]["snoozed_skipped"] += 1
+                vlog(f"  🔕 skipped post by snoozed @{username}")
+                continue
 
             known.add(shortcode)
             kind = "reel" if "/reel/" in card["href"] else "post"
@@ -615,6 +638,7 @@ def print_summary(ctx: dict) -> None:
    already known  {s['dupes']}
    🛡 ads shielded         {s['ads_shielded']}
    🛡 suggested shielded   {s['suggested_shielded']}
+   🔕 snoozed skipped      {s['snoozed_skipped']}
    author unresolved       {s['author_unresolved']}
    errors                  {s['errors']}
    cached, not yet in DB   {uncommitted}  (rerun to retry)
@@ -658,10 +682,13 @@ def main() -> None:
         "jsonl_path": RUNS_DIR / (dt.datetime.now().strftime("%Y-%m-%dT%H-%M-%S") + ".jsonl"),
         "cache_captured": cache.load_captured(),
         "committed": set() if args.overwrite_today else cache.load_committed(),
+        "snoozed": _preload_snoozed_handles(),
         "stats": {"new_posts": 0, "new_stories": 0, "dupes": 0,
-                  "ads_shielded": 0, "suggested_shielded": 0,
+                  "ads_shielded": 0, "suggested_shielded": 0, "snoozed_skipped": 0,
                   "author_unresolved": 0, "errors": 0},
     }
+    if ctx["snoozed"]:
+        log(f"snoozed posters honored this run: {len(ctx['snoozed'])}")
     if ctx["cache_captured"]:
         already = len([1 for e in ctx["cache_captured"] if e in ctx["committed"]])
         log(f"daily cache: {len(ctx['cache_captured'])} captured today "

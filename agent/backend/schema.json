@@ -2,7 +2,7 @@
   "tables": {
     "contacts": {
       "columns": {
-        "id": {"type": "uuid", "primary": true, "default": "gen_random_uuid()"},
+        "id": {"type": "uuid", "primaryKey": true, "default": "gen_random_uuid()"},
         "platform": {"type": "text", "nullable": false},
         "handle": {"type": "text", "nullable": false},
         "display_name": {"type": "text"},
@@ -10,6 +10,7 @@
         "avatar_url": {"type": "text"},
         "kind": {"type": "text", "default": "'person'"},
         "meta": {"type": "jsonb", "default": "'{}'::jsonb"},
+        "snoozed_until": {"type": "timestamptz"},
         "first_seen_at": {"type": "timestamptz", "default": "now()"},
         "last_seen_at": {"type": "timestamptz", "default": "now()"}
       },
@@ -19,7 +20,7 @@
     },
     "items": {
       "columns": {
-        "id": {"type": "uuid", "primary": true, "default": "gen_random_uuid()"},
+        "id": {"type": "uuid", "primaryKey": true, "default": "gen_random_uuid()"},
         "platform": {"type": "text", "nullable": false},
         "kind": {"type": "text", "nullable": false},
         "external_id": {"type": "text", "nullable": false},
@@ -34,7 +35,8 @@
         "media_path": {"type": "text"},
         "posted_at": {"type": "timestamptz"},
         "captured_at": {"type": "timestamptz", "default": "now()"},
-        "graph_synced": {"type": "boolean", "default": "false"}
+        "graph_synced": {"type": "boolean", "default": "false"},
+        "deleted_at": {"type": "timestamptz"}
       },
       "indexes": {
         "uq_items_platform_external": {"columns": ["platform", "external_id"], "unique": true},
@@ -44,7 +46,7 @@
     },
     "scrape_runs": {
       "columns": {
-        "id": {"type": "uuid", "primary": true, "default": "gen_random_uuid()"},
+        "id": {"type": "uuid", "primaryKey": true, "default": "gen_random_uuid()"},
         "platform": {"type": "text", "nullable": false},
         "started_at": {"type": "timestamptz", "default": "now()"},
         "finished_at": {"type": "timestamptz"},
@@ -58,7 +60,7 @@
     },
     "interactions": {
       "columns": {
-        "id": {"type": "uuid", "primary": true, "default": "gen_random_uuid()"},
+        "id": {"type": "uuid", "primaryKey": true, "default": "gen_random_uuid()"},
         "item_id": {"type": "uuid", "references": {"table": "items", "column": "id"}},
         "contact_id": {"type": "uuid", "references": {"table": "contacts", "column": "id"}},
         "action": {"type": "text", "nullable": false},
@@ -71,7 +73,7 @@
     },
     "digests": {
       "columns": {
-        "id": {"type": "uuid", "primary": true, "default": "gen_random_uuid()"},
+        "id": {"type": "uuid", "primaryKey": true, "default": "gen_random_uuid()"},
         "period_start": {"type": "timestamptz"},
         "period_end": {"type": "timestamptz"},
         "headline": {"type": "text", "nullable": false},
@@ -90,7 +92,7 @@
     },
     "preferences": {
       "columns": {
-        "id": {"type": "uuid", "primary": true, "default": "gen_random_uuid()"},
+        "id": {"type": "uuid", "primaryKey": true, "default": "gen_random_uuid()"},
         "key": {"type": "text", "nullable": false},
         "value": {"type": "jsonb", "nullable": false},
         "context": {"type": "text"},

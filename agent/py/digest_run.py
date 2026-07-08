@@ -35,10 +35,15 @@ def gather_context(days: int) -> dict:
 
     items = bb.select("items", {
         "captured_at": f"gte.{since}",
+        "deleted_at": "is.null",
         "select": "kind,topic,brief,url,posted_at,structured,contact_id",
         "order": "captured_at.desc", "limit": 100,
     })
-    contacts = {c["id"]: c["handle"] for c in bb.select("contacts", {"select": "id,handle", "limit": 500})}
+    contact_rows = bb.select("contacts", {"select": "id,handle,snoozed_until", "limit": 500})
+    contacts = {c["id"]: c["handle"] for c in contact_rows}
+    now_iso = dt.datetime.now(dt.timezone.utc).isoformat()
+    snoozed_ids = {c["id"] for c in contact_rows if (c.get("snoozed_until") or "") > now_iso}
+    items = [i for i in items if i.get("contact_id") not in snoozed_ids]
     for i in items:
         i["handle"] = contacts.get(i.pop("contact_id"), "?")
         i["noteworthy"] = (i.pop("structured") or {}).get("noteworthy") or []
