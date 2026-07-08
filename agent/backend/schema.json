@@ -90,6 +90,18 @@
         "idx_digests_status": {"columns": ["status"]}
       }
     },
+    "extraction_feedback": {
+      "columns": {
+        "id": {"type": "uuid", "primaryKey": true, "default": "gen_random_uuid()"},
+        "item_id": {"type": "uuid", "references": {"table": "items", "column": "id"}},
+        "feedback": {"type": "text", "nullable": false},
+        "item_snapshot": {"type": "jsonb"},
+        "created_at": {"type": "timestamptz", "default": "now()"}
+      },
+      "indexes": {
+        "idx_extraction_feedback_created": {"columns": ["created_at"]}
+      }
+    },
     "preferences": {
       "columns": {
         "id": {"type": "uuid", "primaryKey": true, "default": "gen_random_uuid()"},

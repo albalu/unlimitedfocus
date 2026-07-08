@@ -287,6 +287,7 @@ async function refresh() {
               <button onclick="itemFeedback('${i.id}','interesting',this)" title="interesting / relevant">👍</button>
               <button onclick="itemFeedback('${i.id}','not_relevant',this)" title="not relevant / ad / stranger">👎</button>
               <button onclick="deleteEntry('item','${i.id}')" title="delete from my history">🗑</button>
+              <button onclick="toggleFlag('${i.id}')" title="flag a wrong/bad description — helps improve extraction">🚩</button>
               <select title="snooze @${esc(i.handle || '')} — the scraper stops collecting them too"
                       onchange="snooze('${i.contact_id || ''}','${esc(i.handle || '')}',this)">
                 <option value="">🔕 snooze</option>
@@ -297,6 +298,7 @@ async function refresh() {
                 <option value="forever">forever (ad/spam)</option>
               </select>
             </div>
+            <div class="fbwrap" id="fb-${i.id}"></div>
           </div>`).join('')}
       </details>`).join('') || '<span class="tag">Nothing scraped yet.</span>';
   } catch (e) {
@@ -343,6 +345,33 @@ window.itemFeedback = (itemId, verdict, btn) => {
   api('fn/interactions', { method:'POST',
     body: JSON.stringify({ action:'item_feedback', item_id:itemId, context:{ verdict } }) }).catch(() => {});
 };
+// 🚩 Description feedback: inline text box; server stores the text in
+// extraction_feedback together with a full snapshot of the item's metadata.
+window.toggleFlag = (id) => {
+  const box = document.getElementById('fb-' + id);
+  if (box.innerHTML) { box.innerHTML = ''; return; }
+  box.innerHTML = `
+    <div class="row" style="margin-top:8px">
+      <input id="fbi-${id}" placeholder="what's wrong? e.g. wrong description of the image"
+             style="flex:1; margin:0" onkeydown="if(event.key==='Enter')submitFlag('${id}')">
+      <button class="tiny" onclick="submitFlag('${id}')">send</button>
+      <button class="ghost tiny" onclick="toggleFlag('${id}')">cancel</button>
+    </div>`;
+  document.getElementById('fbi-' + id).focus();
+};
+window.submitFlag = async (id) => {
+  const text = (document.getElementById('fbi-' + id)?.value || '').trim();
+  if (!text) return;
+  const box = document.getElementById('fb-' + id);
+  try {
+    await api('fn/interactions', { method:'POST',
+      body: JSON.stringify({ action:'description_feedback', item_id:id, context:{ feedback:text } }) });
+    box.innerHTML = '<span class="tag" style="display:block; margin-top:6px">🚩 logged with the post\'s full metadata — thanks, this improves extraction</span>';
+  } catch (e) {
+    box.innerHTML = `<span class="err">failed: ${esc(e.message)}</span>`;
+  }
+};
+
 // Snooze a poster: all their items vanish from the hub AND the scraper skips
 // them at capture time until the snooze expires ('forever' for ads/spam).
 window.snooze = async (contactId, handle, sel) => {

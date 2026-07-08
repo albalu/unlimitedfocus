@@ -20,6 +20,16 @@ for c in contacts[:25]:
     dn = f" ({c['display_name']})" if c.get("display_name") else ""
     print(f"  @{c['handle']}{dn}  last seen {c['last_seen_at']}")
 
+print("\n── extraction feedback (🚩 flags to act on) ─")
+flags = bb.select("extraction_feedback", {"order": "created_at.desc", "limit": 10})
+for f in flags:
+    snap = f.get("item_snapshot") or {}
+    print(f"  {f['created_at']}  @{snap.get('handle')}  [{snap.get('kind')}] {snap.get('url')}")
+    print(f"     said: {snap.get('brief')}")
+    print(f"     🚩 user: {f['feedback']}")
+if not flags:
+    print("  (none yet)")
+
 print("\n── latest items ────────────────────────────")
 for i in items:
     print(f"  [{i['kind']}] {i.get('topic') or '—'}  {i.get('posted_at') or i['captured_at']}")

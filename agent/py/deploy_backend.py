@@ -48,6 +48,36 @@ def neo4j_http_url() -> str:
     return f"https://{host}"
 
 
+_NEO4J_DB: str | None = None
+
+
+def neo4j_database() -> str:
+    """The instance's actual home database name. Bolt sessions use the server
+    default implicitly, but the HTTP Query API (used by the functions) needs
+    the name in the path — and it is NOT always 'neo4j'. Resolve once via Bolt,
+    then prove the Query API accepts it."""
+    global _NEO4J_DB
+    if _NEO4J_DB:
+        return _NEO4J_DB
+    import graph
+
+    graph.verify_graph()
+    with graph.get_driver().session() as s:
+        _NEO4J_DB = s.run("CALL db.info() YIELD name RETURN name").single()["name"]
+    graph.close_graph()
+
+    r = requests.post(
+        f"{neo4j_http_url()}/db/{_NEO4J_DB}/query/v2",
+        json={"statement": "RETURN 1"},
+        auth=(env("NEO4J_USERNAME"), env("NEO4J_PASSWORD")),
+        timeout=30,
+    )
+    if r.status_code not in (200, 202):
+        raise SystemExit(f"Neo4j Query API rejected db '{_NEO4J_DB}': HTTP {r.status_code}: {r.text[:200]}")
+    print(f"  neo4j database resolved: '{_NEO4J_DB}' (Query API verified)")
+    return _NEO4J_DB
+
+
 def ensure_ingest_secret() -> str:
     """Shared secret protecting digest-ingest. Minted once, appended to .env."""
     import os
@@ -76,6 +106,7 @@ def apply_schema() -> None:
 def function_specs(ingest_secret: str) -> list[dict]:
     common_neo4j = {
         "NEO4J_HTTP_URL": neo4j_http_url(),
+        "NEO4J_DATABASE": neo4j_database(),
         "NEO4J_USERNAME": env("NEO4J_USERNAME"),
         "NEO4J_PASSWORD": env("NEO4J_PASSWORD"),
     }

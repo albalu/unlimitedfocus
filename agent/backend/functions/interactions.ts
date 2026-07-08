@@ -24,7 +24,7 @@ function json(body: unknown, status = 200): Response {
 async function neo4jRun(ctx: any, statement: string, parameters: Record<string, unknown>): Promise<void> {
   try {
     const auth = btoa(`${ctx.env.NEO4J_USERNAME}:${ctx.env.NEO4J_PASSWORD}`);
-    const res = await fetch(`${ctx.env.NEO4J_HTTP_URL}/db/neo4j/query/v2`, {
+    const res = await fetch(`${ctx.env.NEO4J_HTTP_URL}/db/${ctx.env.NEO4J_DATABASE || "neo4j"}/query/v2`, {
       method: "POST",
       headers: { "Content-Type": "application/json", Authorization: `Basic ${auth}` },
       body: JSON.stringify({ statement, parameters }),
@@ -35,7 +35,13 @@ async function neo4jRun(ctx: any, statement: string, parameters: Record<string, 
   }
 }
 
-const ALLOWED = new Set(["visited_link", "asked_about", "item_feedback", "digest_feedback", "deleted", "snooze"]);
+const ALLOWED = new Set(["visited_link", "asked_about", "item_feedback", "digest_feedback",
+                         "deleted", "snooze", "description_feedback"]);
+// description_feedback: {item_id, context:{feedback:"wrong description of image…"}}
+// — extraction QA. Stored in its own table with a FULL snapshot of the item
+// (brief/detail/structured/caption/media/url/poster) so the feedback keeps its
+// context even after the item is deleted or re-extracted; used to improve the
+// extraction prompt over time.
 // snooze: {context:{contact_id, handle?, days: 1|3|7|30|'forever'|0}} — mutes a
 // poster. 'forever' (ads/spam) pins snoozed_until to year 9999; 0 unsnoozes.
 // Enforced in three places: UI queries filter it out, the digest ignores it,
@@ -64,6 +70,22 @@ export default async function handler(req: Request, ctx: any): Promise<Response>
       JSON.stringify({ digest_id: context.digest_id, verdict: context.verdict }),
       context.headline ?? null,
     ]);
+  }
+
+  if (action === "description_feedback") {
+    if (!item_id || !context?.feedback) return json({ error: "item_id and context.feedback required" }, 400);
+    const row = await ctx.db.query(
+      `SELECT i.id, i.platform, i.kind, i.external_id, i.url, i.media_type, i.topic,
+              i.brief, i.detail, i.structured, i.caption_raw, i.media_path,
+              i.posted_at, i.captured_at, c.handle
+         FROM items i LEFT JOIN contacts c ON c.id = i.contact_id
+        WHERE i.id = $1`,
+      [item_id]
+    );
+    await ctx.db.query(
+      `INSERT INTO extraction_feedback (item_id, feedback, item_snapshot) VALUES ($1, $2, $3)`,
+      [item_id, String(context.feedback).slice(0, 2000), JSON.stringify(row.rows?.[0] ?? null)]
+    );
   }
 
   if (action === "snooze") {

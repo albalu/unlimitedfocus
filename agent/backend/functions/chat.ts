@@ -13,7 +13,7 @@ function json(body: unknown, status = 200): Response {
 
 async function neo4jQuery(ctx: any, statement: string): Promise<any[]> {
   const auth = btoa(`${ctx.env.NEO4J_USERNAME}:${ctx.env.NEO4J_PASSWORD}`);
-  const res = await fetch(`${ctx.env.NEO4J_HTTP_URL}/db/neo4j/query/v2`, {
+  const res = await fetch(`${ctx.env.NEO4J_HTTP_URL}/db/${ctx.env.NEO4J_DATABASE || "neo4j"}/query/v2`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
