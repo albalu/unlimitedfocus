@@ -127,6 +127,22 @@
     </div>
 
     <div class="card">
+      <h2>🕸 Social graph</h2>
+      <details id="graph-toggle">
+        <summary><span class="arrow">▶</span>Explore who's connected to what
+          <span class="count" id="graph-status"></span></summary>
+        <div class="row" style="margin:10px 0 8px; font-size:12px; color:var(--dim); gap:14px">
+          <span><span style="color:#7dd3fc">●</span> friend/page (size = activity)</span>
+          <span><span style="color:#8b96a5">●</span> mentioned only</span>
+          <span><span style="color:#5eead4">●</span> topic</span>
+          <span><span style="color:#fca5a5">—</span> mentions</span>
+        </div>
+        <div id="graph-container" style="height:440px; border:1px solid var(--line); border-radius:10px; overflow:hidden"></div>
+        <div class="err" id="graph-err"></div>
+      </details>
+    </div>
+
+    <div class="card">
       <h2>🧑‍🤝‍🧑 Latest from your feed (ad-free)</h2>
       <div id="items"><span class="tag">Loading…</span></div>
     </div>
@@ -373,6 +389,43 @@ async function ask() {
 }
 $('btn-ask').onclick = ask;
 $('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') ask(); });
+
+// ── social graph (Neo4j NVL) ─────────────────────────────────────────────────
+// Lazy: the NVL library (and the graph query) load only when the card is first
+// expanded. Data comes from the graph-data function — live Cypher aggregation,
+// Neo4j credentials never reach the browser.
+let graphInited = false;
+$('graph-toggle').addEventListener('toggle', (e) => {
+  if (e.target.open && !graphInited) { graphInited = true; initGraph(); }
+});
+async function initGraph() {
+  const status = $('graph-status'), errEl = $('graph-err');
+  status.textContent = 'loading…';
+  errEl.textContent = '';
+  try {
+    const [{ NVL }, IH, data] = await Promise.all([
+      import('https://esm.sh/@neo4j-nvl/base'),
+      import('https://esm.sh/@neo4j-nvl/interaction-handlers'),
+      api('fn/graph-data', { method: 'GET' }),
+    ]);
+    if (!data.nodes?.length) { status.textContent = 'no graph yet — run the scraper first'; return; }
+    const nvl = new NVL($('graph-container'), data.nodes, data.rels, { initialZoom: 0.9 });
+    new IH.ZoomInteraction(nvl);
+    new IH.PanInteraction(nvl);
+    new IH.DragNodeInteraction(nvl);
+    const click = new IH.ClickInteraction(nvl);
+    click.updateCallback('onNodeClick', (node) => {
+      if (!node) return;
+      status.textContent = `${node.caption} — try asking the chat about ${node.caption}`;
+    });
+    const hover = new IH.HoverInteraction(nvl);
+    hover.updateCallback('onHover', (el) => { if (el?.caption) status.textContent = el.caption; });
+    status.textContent = `${data.nodes.length} nodes · ${data.rels.length} connections (scroll to zoom, drag to explore)`;
+  } catch (e) {
+    errEl.textContent = 'graph failed to load: ' + e.message;
+    status.textContent = '';
+  }
+}
 
 // ── boot ─────────────────────────────────────────────────────────────────────
 tokens().at ? showApp() : showAuth();

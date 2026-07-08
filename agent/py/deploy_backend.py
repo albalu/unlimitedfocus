@@ -99,6 +99,12 @@ def function_specs(ingest_secret: str) -> list[dict]:
             "trigger": {"type": "http", "config": {"auth": "required"}},
         },
         {
+            "name": "graph-data",
+            "description": "Social graph (contacts/topics/mention edges) shaped for NVL visualization",
+            "envVars": common_neo4j,
+            "trigger": {"type": "http", "config": {"auth": "required"}},
+        },
+        {
             "name": "digest-ingest",
             "description": "Ingests digests from the RocketRide pipeline (X-UF-Secret protected)",
             "envVars": {"UF_INGEST_SECRET": ingest_secret},
