@@ -285,6 +285,9 @@ async function refresh() {
             <div>${esc(i.brief || '')}</div>`}
             <div class="row acts">
               <a href="${i.url}" onclick="visit(event,'${i.id}','${i.url}')">open ↗</a>
+              <button class="fav-btn" data-fav="${i.favorited ? '1' : '0'}"
+                      onclick="toggleFavorite('${i.contact_id || ''}','${esc(i.handle || '')}',this)"
+                      title="${i.favorited ? `@${esc(i.handle || '')} is a favorite — tap to remove` : `favorite @${esc(i.handle || '')} — get their new posts on Telegram`}">${i.favorited ? '❤️' : '🤍'}</button>
               <button onclick="itemFeedback('${i.id}','interesting',this)" title="interesting / relevant">👍</button>
               <button onclick="itemFeedback('${i.id}','not_relevant',this)" title="not relevant / ad / stranger">👎</button>
               <button onclick="deleteEntry('item','${i.id}')" title="delete from my history">🗑</button>
@@ -371,6 +374,25 @@ window.submitFlag = async (id) => {
   } catch (e) {
     box.innerHTML = `<span class="err">failed: ${esc(e.message)}</span>`;
   }
+};
+
+// Sweet-heart reaction: mark a poster as a favorite. The scraper Telegrams a
+// round-up of favorites' new post/story links at the end of each run. Toggles
+// every card from the same poster at once (the feed can list several).
+window.toggleFavorite = async (contactId, handle, btn) => {
+  if (!contactId) return;
+  const makeFav = btn.dataset.fav !== '1';
+  try {
+    await api('fn/interactions', { method:'POST',
+      body: JSON.stringify({ action:'favorite', context:{ contact_id:contactId, handle, favorite:makeFav } }) });
+    document.querySelectorAll(`.item[data-contact="${contactId}"] .fav-btn`).forEach(b => {
+      b.dataset.fav = makeFav ? '1' : '0';
+      b.textContent = makeFav ? '❤️' : '🤍';
+      b.title = makeFav
+        ? `@${handle} is a favorite — tap to remove`
+        : `favorite @${handle} — get their new posts on Telegram`;
+    });
+  } catch (e) { alert('favorite failed: ' + e.message); }
 };
 
 // Snooze a poster: all their items vanish from the hub AND the scraper skips

@@ -43,6 +43,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import html
 import json
 import random
 import re
@@ -55,6 +56,7 @@ import cache
 import chrome
 import extension
 import graph
+import telegram
 import uf_config as cfg
 from extract import extract_item
 from uf_env import MEDIA_DIR, RUNS_DIR, env
@@ -679,6 +681,72 @@ def process_pending(ctx: dict) -> None:
             log(f"  ✗ {rec.get('kind')} {rec.get('external_id')} failed (stays cached, retries next run): {str(exc)[:200]}")
 
 
+# ── favorites report (runs last, after processing) ────────────────────────────
+
+def report_favorites(ctx: dict, cutoff_iso: str) -> None:
+    """End-of-run round-up: Telegram the new post/story links of every favorite
+    poster (top story link only per poster). 'New' = captured since the previous
+    completed run (24h fallback on the first run). Best-effort — any failure is
+    logged and swallowed so it never breaks a scrape."""
+    if not telegram.configured():
+        log("telegram not configured (TELEGRAM_SEASONS_*) — skipping favorites report")
+        return
+    try:
+        favs = bb.select("contacts", {
+            "favorited": "eq.true", "select": "id,handle,display_name",
+            "order": "handle.asc", "limit": 500,
+        })
+        if not favs:
+            log("no favorite posters — skipping favorites report")
+            return
+
+        sections, links, empty = [], 0, 0
+        for c in favs:
+            items = bb.select("items", {
+                "contact_id": f"eq.{c['id']}", "deleted_at": "is.null",
+                "captured_at": f"gte.{cutoff_iso}", "select": "kind,url",
+                "order": "captured_at.desc", "limit": 100,
+            })
+            items = [it for it in items if it.get("url")]
+            if not items:
+                empty += 1
+                continue
+            stories = [it for it in items if it.get("kind") == "story"]
+            others = [it for it in items if it.get("kind") != "story"]
+
+            name = c.get("display_name")
+            head = f"❤️ <b>@{html.escape(c['handle'])}</b>"
+            if name and name != c["handle"]:
+                head += f" · {html.escape(name)}"
+            lines = [head]
+            if stories:  # top (most recent) story only
+                surl = html.escape(stories[0]["url"])
+                lines.append(f'• 📖 <a href="{surl}">story</a>')
+                links += 1
+            seen = set()
+            for it in others:
+                if it["url"] in seen:
+                    continue
+                seen.add(it["url"])
+                reel = it.get("kind") == "reel"
+                lines.append(f'• {"🎬" if reel else "📷"} '
+                             f'<a href="{html.escape(it["url"])}">{"reel" if reel else "post"}</a>')
+                links += 1
+            sections.append("\n".join(lines))
+
+        if not sections:
+            log(f"favorites report: no new posts from {len(favs)} favorite(s) since last run")
+            return
+        date = dt.datetime.now().strftime("%a %b %d")
+        body = f"❤️ <b>Favorites update</b> — {date}\n\n" + "\n\n".join(sections)
+        if empty:
+            body += f"\n\n<i>({empty} other favorite(s) had no new posts)</i>"
+        telegram.send_message(body)
+        log(f"📮 favorites report sent to Telegram: {len(sections)} poster(s), {links} link(s)")
+    except Exception as exc:
+        log(f"⚠ favorites report failed (non-fatal): {str(exc)[:200]}")
+
+
 # ── main ──────────────────────────────────────────────────────────────────────
 
 def print_summary(ctx: dict) -> None:
@@ -726,6 +794,10 @@ def main() -> None:
 
     prev = bb.last_completed_run(cfg.PLATFORM_INSTAGRAM)
     log(f"last completed run: {prev['started_at']}" if prev else "first run for this platform")
+    # Favorites report scopes to content captured since the previous run (so
+    # re-runs the same day don't re-send the same links); 24h on the first run.
+    fav_cutoff = (prev["started_at"] if prev and prev.get("started_at")
+                  else (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=24)).isoformat())
 
     MEDIA_DIR.mkdir(parents=True, exist_ok=True)
     RUNS_DIR.mkdir(parents=True, exist_ok=True)
@@ -824,6 +896,7 @@ def main() -> None:
         process_pending(ctx)
 
         bb.finish_run(run["id"], "completed", ctx["stats"])
+        report_favorites(ctx, fav_cutoff)  # last step: after everything else is done
         print_summary(ctx)
     except BaseException as exc:
         try:

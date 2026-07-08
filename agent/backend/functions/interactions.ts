@@ -36,7 +36,10 @@ async function neo4jRun(ctx: any, statement: string, parameters: Record<string, 
 }
 
 const ALLOWED = new Set(["visited_link", "asked_about", "item_feedback", "digest_feedback",
-                         "deleted", "snooze", "description_feedback"]);
+                         "deleted", "snooze", "description_feedback", "favorite"]);
+// favorite: {context:{contact_id, favorite: true|false, handle?}} — the sweet-
+// heart reaction. Marks a poster the user cares about most; the scraper sends a
+// Telegram round-up of favorites' new post/story links at the end of each run.
 // description_feedback: {item_id, context:{feedback:"wrong description of image…"}}
 // — extraction QA. Stored in its own table with a FULL snapshot of the item
 // (brief/detail/structured/caption/media/url/poster) so the feedback keeps its
@@ -101,6 +104,14 @@ export default async function handler(req: Request, ctx: any): Promise<Response>
       `INSERT INTO extraction_feedback (item_id, feedback, item_snapshot) VALUES ($1, $2, $3)`,
       [item_id, String(context.feedback).slice(0, 2000), JSON.stringify(row.rows?.[0] ?? null)]
     );
+  }
+
+  if (action === "favorite") {
+    const { contact_id, favorite } = context ?? {};
+    if (!contact_id || typeof favorite !== "boolean") {
+      return json({ error: "context.contact_id and context.favorite (boolean) required" }, 400);
+    }
+    await ctx.db.query(`UPDATE contacts SET favorited = $1 WHERE id = $2`, [favorite, contact_id]);
   }
 
   if (action === "snooze") {

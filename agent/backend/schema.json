@@ -10,6 +10,7 @@
         "avatar_url": {"type": "text"},
         "kind": {"type": "text", "default": "'person'"},
         "meta": {"type": "jsonb", "default": "'{}'::jsonb"},
+        "favorited": {"type": "boolean", "default": "false"},
         "snoozed_until": {"type": "timestamptz"},
         "first_seen_at": {"type": "timestamptz", "default": "now()"},
         "last_seen_at": {"type": "timestamptz", "default": "now()"}

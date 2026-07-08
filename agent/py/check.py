@@ -121,6 +121,25 @@ try:
 except Exception as exc:
     bad("unlimited focus bridge", str(exc)[:200])
 
+# 7. Telegram favorites report (OPTIONAL — only checked when configured)
+try:
+    import telegram
+
+    if not telegram.configured():
+        ok("telegram favorites report", "not configured — report disabled (optional)")
+    else:
+        import requests as _rq
+
+        tok = os.environ["TELEGRAM_SEASONS_BOT_TOKEN"]
+        gm = _rq.get(f"https://api.telegram.org/bot{tok}/getMe", timeout=15).json()
+        if gm.get("ok"):
+            ok("telegram favorites report", f"bot @{gm['result'].get('username')} reachable")
+        else:
+            bad("telegram favorites report", f"getMe failed: {str(gm)[:150]}",
+                "check TELEGRAM_SEASONS_BOT_TOKEN (from @BotFather)")
+except Exception as exc:
+    bad("telegram favorites report", str(exc)[:200])
+
 print("\nall required checks passed — ready to scrape" if failures == 0
       else f"\n{failures} required check(s) failed")
 sys.exit(0 if failures == 0 else 1)
