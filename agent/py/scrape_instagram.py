@@ -335,6 +335,18 @@ def append_jsonl(ctx: dict, obj: dict) -> None:
         fh.write(json.dumps(obj, ensure_ascii=False) + "\n")
 
 
+def _log_snooze_skip(ctx: dict, username: str, kind: str) -> None:
+    """First skip per poster logs at normal level (visible confirmation the
+    snooze is acknowledged); repeats only with --verbose to avoid spam when
+    one muted account has many stories."""
+    if username not in ctx["snooze_logged"]:
+        ctx["snooze_logged"].add(username)
+        log(f"  🔕 skipping @{username} ({kind}) — snoozed")
+    else:
+        vlog(f"  🔕 skipped another {kind} by snoozed @{username}")
+    append_jsonl(ctx, {"type": "snoozed_skip", "handle": username, "kind": kind})
+
+
 def capture(ctx: dict, rec: dict) -> None:
     """Register a capture in the daily cache + this run's pending set."""
     cache.append_captured(rec)
@@ -484,7 +496,7 @@ def scrape_stories(ctx: dict) -> None:
 
         if username in ctx["snoozed"]:
             ctx["stats"]["snoozed_skipped"] += 1
-            vlog(f"  🔕 skipped story by snoozed @{username}")
+            _log_snooze_skip(ctx, username, "story")
             advance()
             continue
         if story_id in ctx["cache_captured"]:  # captured earlier today — data already on disk
@@ -583,7 +595,7 @@ def scrape_feed(ctx: dict) -> None:
                 continue
             if username in ctx["snoozed"]:
                 ctx["stats"]["snoozed_skipped"] += 1
-                vlog(f"  🔕 skipped post by snoozed @{username}")
+                _log_snooze_skip(ctx, username, "post")
                 continue
 
             known.add(shortcode)
@@ -683,12 +695,19 @@ def main() -> None:
         "cache_captured": cache.load_captured(),
         "committed": set() if args.overwrite_today else cache.load_committed(),
         "snoozed": _preload_snoozed_handles(),
+        "snooze_logged": set(),
         "stats": {"new_posts": 0, "new_stories": 0, "dupes": 0,
                   "ads_shielded": 0, "suggested_shielded": 0, "snoozed_skipped": 0,
                   "author_unresolved": 0, "errors": 0},
     }
     if ctx["snoozed"]:
-        log(f"snoozed posters honored this run: {len(ctx['snoozed'])}")
+        # Log WHO is being honored (not just a count) so acknowledgment is
+        # always verifiable — full list lands in the run's jsonl.
+        names = sorted(ctx["snoozed"])
+        shown = ", ".join("@" + h for h in names[:15])
+        more = f" … +{len(names) - 15} more (full list in run log)" if len(names) > 15 else ""
+        log(f"🔕 honoring {len(names)} snoozed poster(s): {shown}{more}")
+        append_jsonl(ctx, {"type": "snoozed_honored", "handles": names})
     if ctx["cache_captured"]:
         already = len([1 for e in ctx["cache_captured"] if e in ctx["committed"]])
         log(f"daily cache: {len(ctx['cache_captured'])} captured today "
