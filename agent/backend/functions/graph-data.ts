@@ -15,12 +15,12 @@ function json(body: unknown, status = 200): Response {
   });
 }
 
-async function neo4jQuery(ctx: any, statement: string): Promise<any[]> {
+async function neo4jQuery(ctx: any, statement: string, parameters: Record<string, unknown> = {}): Promise<any[]> {
   const auth = btoa(`${ctx.env.NEO4J_USERNAME}:${ctx.env.NEO4J_PASSWORD}`);
   const res = await fetch(`${ctx.env.NEO4J_HTTP_URL}/db/${ctx.env.NEO4J_DATABASE || "neo4j"}/query/v2`, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Basic ${auth}` },
-    body: JSON.stringify({ statement }),
+    body: JSON.stringify({ statement, parameters }),
   });
   if (!res.ok) throw new Error(`neo4j ${res.status}: ${(await res.text()).slice(0, 200)}`);
   const out = await res.json();
@@ -29,27 +29,84 @@ async function neo4jQuery(ctx: any, statement: string): Promise<any[]> {
   return values.map((row) => Object.fromEntries(fields.map((f, i) => [f, row[i]])));
 }
 
+// POST body: { op: 'delete'|'rename', node_id: 'c:<handle>'|'t:<topic>', display_name? }
+//   delete (contact) — EVERYWHERE (built for ad/spam accounts):
+//       1. Neo4j: the contact node + all their Item nodes, DETACH DELETEd
+//       2. Postgres: all their items tombstoned (dedupe keys kept so the
+//          scraper never re-ingests those posts; heavy columns nulled)
+//       3. Future collection stopped: contact permanently snoozed — the
+//          scraper, hub, chat, digest and graph all honor it
+//   delete (topic)   — graph-scoped only (a topic isn't a data source; it
+//                      reappears if new items are about it)
+//   rename — sets displayName ONLY; the id (handle / topic name) never
+//            changes. Contact renames also sync contacts.display_name in
+//            Postgres so the whole hub shows the new name.
+async function mutate(req: Request, ctx: any): Promise<Response> {
+  const b = await req.json().catch(() => ({}));
+  const m = /^([ct]):(.+)$/.exec(b.node_id || "");
+  if (!m || !["delete", "rename"].includes(b.op)) {
+    return json({ error: "op (delete|rename) and node_id (c:<handle> | t:<name>) required" }, 400);
+  }
+  if (b.op === "rename" && !b.display_name) return json({ error: "display_name required for rename" }, 400);
+  const [, kind, key] = m;
+  const name = b.op === "rename" ? String(b.display_name).slice(0, 80) : null;
+
+  if (kind === "c") {
+    if (b.op === "delete") {
+      await neo4jQuery(ctx,
+        `MATCH (c:Contact {handle: $k})
+         OPTIONAL MATCH (c)-[:POSTED]->(i:Item)
+         DETACH DELETE i, c`, { k: key });
+      await ctx.db.query(
+        `UPDATE items SET deleted_at = now(), structured = NULL, detail = NULL,
+                caption_raw = NULL, brief = NULL, media_path = NULL, topic = NULL
+          WHERE deleted_at IS NULL
+            AND contact_id IN (SELECT id FROM contacts WHERE handle = $1)`,
+        [key]
+      );
+      await ctx.db.query(
+        `UPDATE contacts SET snoozed_until = '9999-12-31T00:00:00Z' WHERE handle = $1`,
+        [key]
+      );
+    } else {
+      await neo4jQuery(ctx, `MATCH (c:Contact {handle: $k}) SET c.displayName = $d`, { k: key, d: name });
+      await ctx.db.query(`UPDATE contacts SET display_name = $1 WHERE handle = $2`, [name, key]);
+    }
+  } else {
+    if (b.op === "delete") {
+      await neo4jQuery(ctx, `MATCH (t:Topic {name: $k}) DETACH DELETE t`, { k: key });
+    } else {
+      await neo4jQuery(ctx, `MATCH (t:Topic {name: $k}) SET t.displayName = $d`, { k: key, d: name });
+    }
+  }
+  await ctx.db.query(`INSERT INTO interactions (action, context) VALUES ('graph_edit', $1)`, [JSON.stringify(b)]);
+  return json({ ok: true });
+}
+
 const CONTACT_COLOR = "#7dd3fc";       // people who post
 const MENTIONED_COLOR = "#8b96a5";     // people only seen via mentions
 const TOPIC_COLOR = "#5eead4";
 const MENTION_EDGE_COLOR = "#fca5a5";
 
-export default async function handler(_req: Request, ctx: any): Promise<Response> {
+export default async function handler(req: Request, ctx: any): Promise<Response> {
   if (!ctx.user) return json({ error: "unauthorized" }, 401);
+  if (req.method === "POST") return mutate(req, ctx);
 
   const [posters, topicEdges, mentionEdges, snoozedRows] = await Promise.all([
     neo4jQuery(ctx, `
       MATCH (c:Contact)-[:POSTED]->(i:Item)
-      RETURN c.handle AS handle, count(i) AS posts
+      RETURN c.handle AS handle, coalesce(c.displayName, '@' + c.handle) AS caption, count(i) AS posts
       ORDER BY posts DESC LIMIT 60`),
     neo4jQuery(ctx, `
       MATCH (c:Contact)-[:POSTED]->(i:Item)-[:ABOUT]->(t:Topic)
-      RETURN c.handle AS handle, t.name AS topic, count(i) AS n
+      RETURN c.handle AS handle, t.name AS topic,
+             coalesce(t.displayName, t.name) AS tcaption, count(i) AS n
       ORDER BY n DESC LIMIT 200`),
     neo4jQuery(ctx, `
       MATCH (c:Contact)-[:POSTED]->(i:Item)-[:MENTIONS]->(m:Contact)
       WHERE c <> m
-      RETURN c.handle AS who, m.handle AS whom, count(i) AS n
+      RETURN c.handle AS who, m.handle AS whom,
+             coalesce(m.displayName, '@' + m.handle) AS whomCaption, count(i) AS n
       ORDER BY n DESC LIMIT 150`),
     ctx.db.query(`SELECT handle FROM contacts WHERE snoozed_until IS NOT NULL AND snoozed_until > now()`),
   ]);
@@ -62,7 +119,7 @@ export default async function handler(_req: Request, ctx: any): Promise<Response
     if (muted.has(p.handle)) continue;
     nodes.set(`c:${p.handle}`, {
       id: `c:${p.handle}`,
-      caption: `@${p.handle}`,
+      caption: p.caption,
       size: 18 + Math.min(30, Number(p.posts) * 3),
       color: CONTACT_COLOR,
     });
@@ -70,7 +127,7 @@ export default async function handler(_req: Request, ctx: any): Promise<Response
   for (const e of topicEdges) {
     if (muted.has(e.handle) || !nodes.has(`c:${e.handle}`)) continue;
     const tid = `t:${e.topic}`;
-    const t = nodes.get(tid) ?? { id: tid, caption: e.topic, size: 12, color: TOPIC_COLOR };
+    const t = nodes.get(tid) ?? { id: tid, caption: e.tcaption, size: 12, color: TOPIC_COLOR };
     t.size = Math.min(34, t.size + Number(e.n) * 2);
     nodes.set(tid, t);
     rels.push({ id: `pa:${e.handle}:${e.topic}`, from: `c:${e.handle}`, to: tid,
@@ -80,7 +137,7 @@ export default async function handler(_req: Request, ctx: any): Promise<Response
     if (muted.has(m.who) || muted.has(m.whom)) continue;
     if (!nodes.has(`c:${m.who}`)) continue;
     if (!nodes.has(`c:${m.whom}`)) {
-      nodes.set(`c:${m.whom}`, { id: `c:${m.whom}`, caption: `@${m.whom}`, size: 14, color: MENTIONED_COLOR });
+      nodes.set(`c:${m.whom}`, { id: `c:${m.whom}`, caption: m.whomCaption, size: 14, color: MENTIONED_COLOR });
     }
     rels.push({ id: `m:${m.who}:${m.whom}`, from: `c:${m.who}`, to: `c:${m.whom}`,
                 caption: "mentions", color: MENTION_EDGE_COLOR,

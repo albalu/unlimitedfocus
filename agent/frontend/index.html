@@ -138,6 +138,7 @@
           <span><span style="color:#fca5a5">—</span> mentions</span>
         </div>
         <div id="graph-container" style="height:440px; border:1px solid var(--line); border-radius:10px; overflow:hidden"></div>
+        <div class="row" id="graph-node-actions" style="margin-top:8px; min-height:28px"></div>
         <div class="err" id="graph-err"></div>
       </details>
     </div>
@@ -423,7 +424,7 @@ $('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') ask(); });
 // Lazy: the NVL library (and the graph query) load only when the card is first
 // expanded. Data comes from the graph-data function — live Cypher aggregation,
 // Neo4j credentials never reach the browser.
-let graphInited = false;
+let graphInited = false, graphMods = null, nvlInstance = null, selectedNode = null;
 $('graph-toggle').addEventListener('toggle', (e) => {
   if (e.target.open && !graphInited) { graphInited = true; initGraph(); }
 });
@@ -432,29 +433,71 @@ async function initGraph() {
   status.textContent = 'loading…';
   errEl.textContent = '';
   try {
-    const [{ NVL }, IH, data] = await Promise.all([
+    const [base, handlers] = await Promise.all([
       import('https://esm.sh/@neo4j-nvl/base'),
       import('https://esm.sh/@neo4j-nvl/interaction-handlers'),
-      api('fn/graph-data', { method: 'GET' }),
     ]);
-    if (!data.nodes?.length) { status.textContent = 'no graph yet — run the scraper first'; return; }
-    const nvl = new NVL($('graph-container'), data.nodes, data.rels, { initialZoom: 0.9 });
-    new IH.ZoomInteraction(nvl);
-    new IH.PanInteraction(nvl);
-    new IH.DragNodeInteraction(nvl);
-    const click = new IH.ClickInteraction(nvl);
-    click.updateCallback('onNodeClick', (node) => {
-      if (!node) return;
-      status.textContent = `${node.caption} — try asking the chat about ${node.caption}`;
-    });
-    const hover = new IH.HoverInteraction(nvl);
-    hover.updateCallback('onHover', (el) => { if (el?.caption) status.textContent = el.caption; });
-    status.textContent = `${data.nodes.length} nodes · ${data.rels.length} connections (scroll to zoom, drag to explore)`;
+    graphMods = { NVL: base.NVL, IH: handlers };
+    await loadGraph();
   } catch (e) {
     errEl.textContent = 'graph failed to load: ' + e.message;
     status.textContent = '';
   }
 }
+async function loadGraph() {
+  const status = $('graph-status');
+  const data = await api('fn/graph-data', { method: 'GET' });
+  if (nvlInstance) { try { nvlInstance.destroy(); } catch (e) {} $('graph-container').innerHTML = ''; }
+  selectedNode = null;
+  $('graph-node-actions').innerHTML = '<span class="tag">click a node to rename or delete it</span>';
+  if (!data.nodes?.length) { status.textContent = 'no graph yet — run the scraper first'; return; }
+  const { NVL, IH } = graphMods;
+  nvlInstance = new NVL($('graph-container'), data.nodes, data.rels, { initialZoom: 0.9 });
+  new IH.ZoomInteraction(nvlInstance);
+  new IH.PanInteraction(nvlInstance);
+  new IH.DragNodeInteraction(nvlInstance);
+  const click = new IH.ClickInteraction(nvlInstance);
+  click.updateCallback('onNodeClick', (node) => {
+    if (!node) return;
+    selectedNode = node;
+    const isContact = node.id.startsWith('c:');
+    $('graph-node-actions').innerHTML = `
+      <b>${esc(node.caption)}</b>
+      <button class="ghost tiny" onclick="renameNode()">✏️ rename</button>
+      <button class="ghost tiny" onclick="deleteGraphNode()">🗑 ${isContact ? 'delete everywhere' : 'remove topic'}</button>`;
+  });
+  const hover = new IH.HoverInteraction(nvlInstance);
+  hover.updateCallback('onHover', (el) => { if (el?.caption) status.textContent = el.caption; });
+  status.textContent = `${data.nodes.length} nodes · ${data.rels.length} connections (scroll to zoom, drag to explore)`;
+}
+// Rename: display name ONLY — the underlying id (handle / topic) never changes.
+window.renameNode = async () => {
+  if (!selectedNode) return;
+  const name = prompt(`New display name for ${selectedNode.caption}\n(the underlying id stays the same):`);
+  if (!name || !name.trim()) return;
+  try {
+    await api('fn/graph-data', { method:'POST',
+      body: JSON.stringify({ op:'rename', node_id:selectedNode.id, display_name:name.trim() }) });
+    await loadGraph();
+  } catch (e) { $('graph-err').textContent = 'rename failed: ' + e.message; }
+};
+// Delete: contacts (e.g. sponsored/spam accounts) are removed EVERYWHERE —
+// graph, all their posts in your history (tombstoned), and the scraper
+// permanently stops collecting them. Topics are graph-only cosmetic removals.
+window.deleteGraphNode = async () => {
+  if (!selectedNode) return;
+  const isContact = selectedNode.id.startsWith('c:');
+  const msg = isContact
+    ? `Delete ${selectedNode.caption} EVERYWHERE?\n\n• all their posts leave your history\n• removed from the knowledge graph\n• the scraper permanently stops collecting them\n\nThis cannot be undone.`
+    : `Remove topic "${selectedNode.caption}" from the graph?\n(It may reappear if new posts are about it.)`;
+  if (!confirm(msg)) return;
+  try {
+    await api('fn/graph-data', { method:'POST',
+      body: JSON.stringify({ op:'delete', node_id:selectedNode.id }) });
+    await loadGraph();
+    refresh(); // the feed list may have lost items too
+  } catch (e) { $('graph-err').textContent = 'delete failed: ' + e.message; }
+};
 
 // ── boot ─────────────────────────────────────────────────────────────────────
 tokens().at ? showApp() : showAuth();
