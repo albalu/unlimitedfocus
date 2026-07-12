@@ -127,6 +127,16 @@ the same way (feed-only — LinkedIn retired stories), shielding *Promoted* and
 run machinery lives in `scrape_common.py`; each platform script only owns its
 walk.
 
+**Scrape while you're away:** `uv run lockwatch.py install` sets up a
+launchd agent that runs both scrapers (sequentially) every time the screen
+locks — at most once per 10 minutes (`UF_LOCKWATCH_GAP_MIN`). Unlocking
+mid-run interrupts the scraper gracefully, so Chrome is yours the moment you
+sit back down. After installing, run `uv run lockwatch.py fire` once while
+unlocked to approve the macOS automation prompts. `status` / `uninstall` /
+log at `agent/data/lockwatch.log`. Caveat: a closed lid means the Mac
+sleeps, so no runs happen then — `caffeinate -i` only guards against idle
+sleep during a run.
+
 ---
 
 ## Step 2 — digest the last few days

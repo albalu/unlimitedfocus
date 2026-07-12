@@ -8,4 +8,6 @@ dependencies = [
     "python-dotenv>=1.0",
     "neo4j>=5.28",
     "rocketride>=0.1",
+    # lockwatch.py: NSDistributedNotificationCenter screen-lock events
+    "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
 ]

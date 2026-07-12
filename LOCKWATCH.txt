@@ -1,0 +1,5 @@
+# lockwatch — scrapers auto-run on screen lock (from agent/py/)
+cd agent/py && uv run lockwatch.py install   # set up + start (once; survives restarts)
+cd agent/py && uv run lockwatch.py fire      # one-time after install: approve macOS prompts / test run
+cd agent/py && uv run lockwatch.py status    # is it running? last run? recent log
+cd agent/py && uv run lockwatch.py uninstall # remove completely
