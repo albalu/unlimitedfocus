@@ -12,6 +12,14 @@ html[data-uf-feed-hidden] main [data-uf-hide] {
   display: none !important;
 }
 
+/* findFeed mode: the feed branch KEEPS its own layout box — so sibling
+   columns (sidebar, news rail) don't reflow and the focus message can center
+   over it — while all its children, current and future, are hidden. The
+   child combinator means posts streamed in later never paint at all. */
+html[data-uf-feed-hidden] main [data-uf-hide-children] > * {
+  display: none !important;
+}
+
 html[data-uf-main-hidden] main {
   display: none !important;
 }

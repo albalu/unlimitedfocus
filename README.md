@@ -43,11 +43,15 @@ editable in the popup). On Instagram the stories tray stays visible and
 clickable: the blocker finds it structurally (links to `/stories/…`, falling
 back to the `<canvas>` story rings, reduced to their common ancestor) and
 hides only the sibling branches around it inside `<main>` — feed posts,
-suggestions, and all. If the site has no tray (LinkedIn), the surface doesn't
-render one (Explore, Reels), or detection ever fails, the whole `<main>`
-region is hidden instead, so the failure mode is always *more* focus, never a
-visible feed. The nav sidebar, drawers, and dialogs live outside `<main>` and
-keep working; hidden content is `display: none`, so nothing ever loads in the
+suggestions, and all. On LinkedIn only the infinite-scroll feed column is
+hidden — located by the `aria-label="Primary content"` landmark and refined
+to the common ancestor of the post cards (found by their `urn:li:…` ids in
+any attribute), so the profile card and news rail stay usable — and the
+composer too, whenever the cards are individually identifiable. If a surface
+renders no such landmark (Explore, Reels, feed not loaded yet) or detection
+ever fails, the whole `<main>` region is hidden instead, so the failure mode
+is always *more* focus, never a visible feed. The nav sidebar, drawers, and dialogs live outside `<main>` and keep
+working; hidden content is `display: none`, so nothing ever loads in the
 background either.
 
 **Limit scrolling** — the feed works but is capped at a fixed allowance of N
@@ -145,7 +149,8 @@ Block mode (default):
 - [ ] Sidebar navigation, search and notification drawers still work
 - [ ] Editing the message in the popup updates the page live
 - [ ] Message is readable in both light and dark theme
-- [ ] LinkedIn home feed (`linkedin.com/feed/`) shows the focus message;
+- [ ] LinkedIn home feed (`linkedin.com/feed/`) shows the focus message with
+      only the center feed column hidden — profile card and news rail stay;
       messaging, notifications, jobs, and profiles still work
 - [ ] Opening a LinkedIn post permalink (`/feed/update/…` or `/posts/…`)
       works; browsing on to a 4th post hits the focus wall

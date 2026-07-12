@@ -28,6 +28,10 @@
  *                  identity (see itemKey below for the default)
  *   storiesTray    true when the site has a stories tray the blocker should
  *                  keep visible (block mode hides everything else in <main>)
+ *   findFeed       optional (main) => element: locate just the infinite-scroll
+ *                  feed branch so block mode hides only that, leaving the rest
+ *                  of the page (sidebars, composer) visible. Null/missing or a
+ *                  miss falls back to hiding <main> — more focus, never less
  *
  * Any path matching neither list (DMs, profiles, stories, settings, ...) is
  * left completely alone.
@@ -71,6 +75,44 @@ globalThis.UFSiteRules = (() => {
       itemKey(pathname) {
         const m = pathname.match(/(?:activity|ugcpost|share)[:-](\d+)/i);
         return m ? m[1] : pathname;
+      },
+      // Block mode hides ONLY the infinite-scroll feed column — the sidebar
+      // (profile card) and news rail stay usable. Two structural signals,
+      // never class names (LinkedIn's are hashed):
+      //
+      //  1. The aria landmark: the current DOM labels its columns
+      //     (aria-label "Sidebar" / "Primary content" / "Aside"); the feed
+      //     column is the "Primary content" section. TODO(i18n): English UI.
+      //  2. Within that column (or all of <main> when the landmark is
+      //     missing), the cards' lowest common ancestor: every post card
+      //     carries its urn:li:<kind>:<id> somewhere — data-id/data-urn in
+      //     the classic DOM, buried mid-value in tracking attributes in the
+      //     new one, so the scan matches anywhere in any attribute except
+      //     href (a mere LINK to a post, e.g. in the news rail, is not a
+      //     card). When the LCA is found, only the scrolling list hides and
+      //     the composer above it survives; otherwise the whole landmark
+      //     column hides; with neither signal, null → the blocker hides
+      //     <main> — always failing toward more focus.
+      findFeed(main) {
+        const URN = /urn:li:(?:activity|ugcPost|share):\d+/;
+        const primary = main.querySelector('section[aria-label="Primary content"]');
+        const scope = primary || main;
+        let cards = [...scope.querySelectorAll('[data-id^="urn:li:"], [data-urn^="urn:li:"]')].filter(
+          (el) => URN.test(el.getAttribute("data-id") || el.getAttribute("data-urn") || "")
+        );
+        if (!cards.length) {
+          cards = [...scope.querySelectorAll("*")].filter((el) =>
+            [...el.attributes].some((a) => a.name !== "href" && URN.test(a.value))
+          );
+        }
+        if (cards.length >= 2) {
+          let lca = cards[0];
+          for (const card of cards) {
+            while (lca && lca !== scope && !lca.contains(card)) lca = lca.parentElement;
+          }
+          if (lca && lca !== scope && scope.contains(lca)) return lca;
+        }
+        return primary;
       },
     },
   ];

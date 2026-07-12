@@ -90,6 +90,7 @@ const check = (cond, name) => {
   check(!!li && !!R.forHost("linkedin.com"), "linkedin hosts match");
   check(!R.forHost("evil-linkedin.com"), "lookalike linkedin host does not match");
   check(!li.storiesTray, "linkedin has no stories tray");
+  check(typeof li.findFeed === "function", "linkedin provides a findFeed locator");
 
   for (const [p, want] of [
     ["/feed/", true],

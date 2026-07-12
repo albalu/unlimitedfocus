@@ -13,6 +13,7 @@
   const limiter = new globalThis.UFScrollLimiter();
   const blocker = new globalThis.UFFeedBlocker();
   blocker.keepStoriesTray = !!site.storiesTray;
+  blocker.findFeed = site.findFeed || null;
 
   // While on contained paths (a specific post/reel), the items the user may
   // view: the one they arrived on plus up to itemAllowance more. Swiping

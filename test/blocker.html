@@ -27,6 +27,7 @@
       <aside id="suggestions">suggested for you</aside>
     </main>
     <div id="results"></div>
+    <script src="../src/shared/sites.js"></script>
     <script src="../src/content/blocker.js"></script>
     <script>
       (async () => {
@@ -105,6 +106,109 @@
         check(hidden(document.querySelector("main")), "main fully hidden without a tray");
         blocker.deactivate();
         check(!hidden(document.querySelector("main")), "deactivate restores main");
+
+        // LinkedIn-like surface, driven by the REAL linkedin rule's findFeed:
+        // only the infinite-scroll feed column hides — profile card, news
+        // rail, and composer stay. (Replaces the fixture; keep this last.)
+        const li = globalThis.UFSiteRules.forHost("www.linkedin.com");
+        document.querySelector("main").innerHTML = `
+          <div id="liRow">
+            <div id="liProfile">profile card</div>
+            <div id="liCol">
+              <div id="liComposer">start a post</div>
+              <div id="liFeed">
+                <div data-id="urn:li:activity:71">post 1
+                  <div data-urn="urn:li:ugcPost:72">nested reshare</div>
+                </div>
+                <div data-id="urn:li:activity:73">post 2</div>
+              </div>
+            </div>
+            <div id="liNews">news rail</div>
+          </div>`;
+        blocker.keepStoriesTray = false;
+        blocker.findFeed = li.findFeed;
+        blocker.activate();
+        await tick();
+        check(document.documentElement.hasAttribute("data-uf-feed-hidden"), "linkedin: selective feed mode");
+        // The branch KEEPS its layout box (data-uf-hide-children); only its
+        // children hide — so sibling columns never reflow and the overlay
+        // can center on the branch's rect.
+        check(!hidden(document.getElementById("liFeed")), "linkedin feed branch keeps its box");
+        check(hidden(document.querySelector("#liFeed > [data-id]")), "linkedin feed cards hidden");
+        check(!hidden(document.getElementById("liProfile")), "profile card stays visible");
+        check(!hidden(document.getElementById("liNews")), "news rail stays visible");
+        check(!hidden(document.getElementById("liComposer")), "composer stays visible");
+        // a post streamed in later never paints: the CSS child rule catches
+        // it instantly, no observer round-trip needed
+        const liPost3 = document.createElement("div");
+        liPost3.setAttribute("data-id", "urn:li:activity:74");
+        liPost3.textContent = "post 3";
+        document.getElementById("liFeed").appendChild(liPost3);
+        check(liPost3.getClientRects().length === 0, "new linkedin post never paints");
+        blocker.deactivate();
+        check(!hidden(document.querySelector("#liFeed > [data-id]")), "deactivate restores the feed cards");
+        // single card = too weak a signal: fall back to whole-main
+        document.getElementById("liFeed").innerHTML = '<div data-id="urn:li:activity:71">only post</div>';
+        blocker.activate();
+        await tick();
+        check(document.documentElement.hasAttribute("data-uf-main-hidden"), "under 2 cards: whole-main fallback");
+        blocker.deactivate();
+
+        // New-UI LinkedIn DOM: hashed class names, aria-labelled columns,
+        // card urns buried MID-VALUE in tracking attributes. The cards' list
+        // hides; composer, sidebar, and news rail stay.
+        document.querySelector("main").innerHTML = `
+          <div class="_1aa780e9 _34250a86" style="display:flex; gap:16px">
+            <aside aria-label="Sidebar" id="nSidebar" style="width:180px">profile card</aside>
+            <section aria-label="Primary content" id="nPrimary" style="flex:1">
+              <div id="nComposer">start a post</div>
+              <div id="nList">
+                <div componentkey='{"u":"urn:li:activity:91"}'>post 1</div>
+                <div componentkey='{"u":"urn:li:activity:92"}'>post 2</div>
+              </div>
+            </section>
+            <aside aria-label="Aside" id="nNews" style="width:260px">news rail</aside>
+          </div>`;
+        blocker.activate();
+        await tick();
+        check(document.documentElement.hasAttribute("data-uf-feed-hidden"), "new DOM: selective feed mode");
+        check(!hidden(document.getElementById("nList")), "new DOM: list keeps its box");
+        check(hidden(document.querySelector("#nList > div")), "new DOM: cards hidden");
+        check(!hidden(document.getElementById("nComposer")), "new DOM: composer stays");
+        check(!hidden(document.getElementById("nSidebar")), "new DOM: sidebar stays");
+        check(!hidden(document.getElementById("nNews")), "new DOM: news rail stays");
+        // overlay narrows to the feed branch's box, not the whole viewport
+        const listRect = document.getElementById("nList").getBoundingClientRect();
+        check(
+          Math.abs(parseFloat(blocker.overlay.style.left) - listRect.left) < 2 &&
+            Math.abs(window.innerWidth - parseFloat(blocker.overlay.style.right) - listRect.right) < 2,
+          "new DOM: message centered over the feed column"
+        );
+        blocker.deactivate();
+
+        // Same columns but no urn exposed anywhere: the aria landmark alone
+        // carries it — the whole primary column hides, asides still stay,
+        // and the message centers in the gap BETWEEN the asides.
+        document.getElementById("nList").innerHTML =
+          "<div>post 1</div><div>post 2</div>";
+        blocker.activate();
+        await tick();
+        check(document.documentElement.hasAttribute("data-uf-feed-hidden"), "landmark only: selective mode");
+        check(!hidden(document.getElementById("nPrimary")), "landmark only: column keeps its layout box");
+        check(hidden(document.getElementById("nComposer")) && hidden(document.getElementById("nList")),
+              "landmark only: column contents hidden");
+        check(!hidden(document.getElementById("nSidebar")), "landmark only: sidebar stays");
+        check(!hidden(document.getElementById("nNews")), "landmark only: news rail stays");
+        // the column keeps its width, so the asides don't reflow and the
+        // message sits exactly in the gap between them
+        const sbRect = document.getElementById("nSidebar").getBoundingClientRect();
+        const nwRect = document.getElementById("nNews").getBoundingClientRect();
+        check(
+          parseFloat(blocker.overlay.style.left) >= sbRect.right - 1 &&
+            window.innerWidth - parseFloat(blocker.overlay.style.right) <= nwRect.left + 1,
+          "landmark only: message sits between the asides"
+        );
+        blocker.deactivate();
 
         const summary = fails === 0 ? "ALL PASS (" + out.length + " checks)" : fails + " FAILURES";
         out.push(summary);

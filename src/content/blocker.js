@@ -6,15 +6,17 @@
  *
  * Everything works inside the page's <main> region (the semantic content
  * area — the nav sidebar, drawers, and dialogs live outside it and are never
- * touched). Two hiding strategies, both driven by attributes that blocker.css
- * keys off, so deactivating is just removing attributes:
+ * touched). Three hiding strategies, all driven by attributes that
+ * blocker.css keys off, so deactivating is just removing attributes:
  *
  *  1. If the site has a stories tray (keepStoriesTray, set from the site
  *     rule — Instagram) and it can be found, hide only the sibling branches
  *     along the tray → <main> path (feed posts, suggestions sidebar, ...).
  *     The tray stays visible and clickable.
- *  2. Otherwise (LinkedIn, Explore, Reels, tray not rendered yet) hide
- *     <main> entirely.
+ *  2. If the site rule provides findFeed (LinkedIn), hide only the feed
+ *     branch it returns — sidebars and composer stay usable.
+ *  3. Otherwise (Explore, Reels, feed not rendered yet, detection miss)
+ *     hide <main> entirely — the failure mode is always more focus.
  *
  * The tray is located structurally: links to /stories/… (or, failing that,
  * the <canvas> story rings), reduced to their lowest common ancestor. If that
@@ -28,15 +30,22 @@
  *
  * The message overlay is appended to <html>, not <body>, so the site's
  * framework never sees (or removes) it, and it ignores pointer events so the
- * tray, drawers, and dialogs keep working.
+ * tray, drawers, and dialogs keep working. When a single feed branch is
+ * hidden (findFeed mode), the overlay is narrowed to the horizontal hole
+ * that branch left behind — between the still-visible sidebars — so the
+ * message reads as centered over where the feed was, not over the viewport.
  */
 class UFFeedBlocker {
   constructor() {
     this.active = false;
     this.message = "";
     // Set from the site rule (storiesTray). When false, tray detection is
-    // skipped entirely and block mode always hides <main>.
+    // skipped entirely.
     this.keepStoriesTray = false;
+    // Set from the site rule (findFeed): (main) => the feed branch to hide,
+    // or null. Re-run on every mutation batch, so the marked branch grows
+    // with the feed (earlier, smaller marks end up inside it — harmless).
+    this.findFeed = null;
     // When true, [role="dialog"] layers are hidden too. Used for the item
     // drift wall: post/reel viewers can be dialogs rendered outside <main>,
     // so hiding <main> alone would leave them browsable. Feed blocking keeps
@@ -48,6 +57,10 @@ class UFFeedBlocker {
     this.marked = new Set();
     this.observer = null;
     this.applyScheduled = false;
+    // The single branch hidden by findFeed mode, if any — the overlay
+    // narrows to the horizontal hole it left. Null in tray/main modes.
+    this.feedBranch = null;
+    this._onResize = () => this._scheduleApply();
   }
 
   /** Idempotent; also refreshes the message and theme when already active. */
@@ -57,12 +70,14 @@ class UFFeedBlocker {
       this._apply();
       this.observer = new MutationObserver(() => this._scheduleApply());
       this.observer.observe(document.documentElement, { childList: true, subtree: true });
+      window.addEventListener("resize", this._onResize);
     }
     document.documentElement.toggleAttribute("data-uf-dialogs-hidden", this.hideDialogs);
     if (!this.overlay) this._build();
     if (!this.overlay.isConnected) document.documentElement.appendChild(this.overlay);
     this.textEl.textContent = this.message;
     this._applyTheme();
+    this._placeOverlay();
     this.overlay.style.display = "flex";
   }
 
@@ -71,11 +86,16 @@ class UFFeedBlocker {
     this.active = false;
     this.observer.disconnect();
     this.observer = null;
+    window.removeEventListener("resize", this._onResize);
+    this.feedBranch = null;
     const root = document.documentElement;
     root.removeAttribute("data-uf-feed-hidden");
     root.removeAttribute("data-uf-main-hidden");
     root.removeAttribute("data-uf-dialogs-hidden");
-    for (const el of this.marked) el.removeAttribute("data-uf-hide");
+    for (const el of this.marked) {
+      el.removeAttribute("data-uf-hide");
+      el.removeAttribute("data-uf-hide-children");
+    }
     this.marked.clear();
     if (this.overlay) this.overlay.style.display = "none";
   }
@@ -93,20 +113,69 @@ class UFFeedBlocker {
     const root = document.documentElement;
     const main = document.querySelector("main");
     const tray = main && this.keepStoriesTray ? this._findStoriesTray(main) : null;
-    if (!tray) {
-      root.setAttribute("data-uf-main-hidden", "");
-      root.removeAttribute("data-uf-feed-hidden");
+    if (tray) {
+      for (let el = tray; el !== main && el.parentElement; el = el.parentElement) {
+        for (const sibling of el.parentElement.children) {
+          if (sibling === el) continue;
+          this._mark(sibling);
+        }
+      }
+      this.feedBranch = null;
+      this._setMode(root, "feed");
+      this._placeOverlay();
       return;
     }
-    for (let el = tray; el !== main && el.parentElement; el = el.parentElement) {
-      for (const sibling of el.parentElement.children) {
-        if (sibling === el || sibling.hasAttribute("data-uf-hide")) continue;
-        sibling.setAttribute("data-uf-hide", "");
-        this.marked.add(sibling);
+    const feed = main && this.findFeed ? this.findFeed(main) : null;
+    if (feed) {
+      // Hide the branch's CHILDREN, not the branch: it keeps its flex/grid
+      // box, so the visible columns around it never reflow, and its rect is
+      // what the overlay centers on. blocker.css hides future children too.
+      if (!feed.hasAttribute("data-uf-hide-children")) {
+        feed.setAttribute("data-uf-hide-children", "");
+        this.marked.add(feed);
+      }
+      this.feedBranch = feed;
+      this._setMode(root, "feed");
+      this._placeOverlay();
+      return;
+    }
+    this.feedBranch = null;
+    this._setMode(root, "main");
+    this._placeOverlay();
+  }
+
+  _mark(el) {
+    if (el.hasAttribute("data-uf-hide")) return;
+    el.setAttribute("data-uf-hide", "");
+    this.marked.add(el);
+  }
+
+  /** "feed": only [data-uf-hide] branches hide; "main": all of <main> does. */
+  _setMode(root, mode) {
+    root.toggleAttribute("data-uf-feed-hidden", mode === "feed");
+    root.toggleAttribute("data-uf-main-hidden", mode === "main");
+  }
+
+  /**
+   * Narrow the overlay to the feed branch's own box (findFeed mode) so the
+   * message centers over where the feed was, or span the viewport (tray and
+   * whole-main modes). The branch stays measurable because only its children
+   * are hidden. A box too narrow for the message means the layout isn't the
+   * expected columns — span the viewport instead.
+   */
+  _placeOverlay() {
+    if (!this.overlay) return;
+    let left = 0;
+    let right = 0;
+    if (this.feedBranch && this.feedBranch.isConnected) {
+      const r = this.feedBranch.getBoundingClientRect();
+      if (r.width >= 240) {
+        left = Math.max(0, r.left);
+        right = Math.max(0, window.innerWidth - r.right);
       }
     }
-    root.setAttribute("data-uf-feed-hidden", "");
-    root.removeAttribute("data-uf-main-hidden");
+    this.overlay.style.left = `${left}px`;
+    this.overlay.style.right = `${right}px`;
   }
 
   _findStoriesTray(main) {
