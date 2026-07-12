@@ -95,31 +95,37 @@ except Exception as exc:
         "(and grant Terminal automation permission if macOS asks)")
 
 # 6. Unlimited Focus extension bridge (optional — but a blocker that can't be
-# paused hides the feed and the scraper captures nothing, so verify loudly)
-try:
-    import time
+# paused hides the feed and the scraper captures nothing, so verify loudly).
+# Checked per site: a build loaded before a site was added to the manifest is
+# 'absent' there even though the bridge answers elsewhere.
+for site_label, site_url in [("instagram", "https://www.instagram.com/"),
+                             ("linkedin", "https://www.linkedin.com/feed/")]:
+    try:
+        import time
 
-    import chrome
-    import extension
+        import chrome
+        import extension
 
-    chrome.new_tab("https://www.instagram.com/")
-    time.sleep(6)  # content scripts inject at document_idle
-    p = extension.probe()
-    verdict, state = extension.detect()
-    chrome.close_tab()
-    if verdict == "ok":
-        guard = ("actively guarding — scraper will pause/resume it"
-                 if extension.is_blocking(state) else "installed, currently off")
-        ok("unlimited focus bridge", f"v{p.get('bridge')} — {guard}")
-    elif verdict == "stale":
-        bad("unlimited focus bridge",
-            "extension present but its agent bridge is not answering "
-            "(loaded build predates src/content/agent.js?)",
-            "chrome://extensions → Unlimited Focus → reload (↻), then rerun this check")
-    else:
-        ok("unlimited focus extension", "not detected — nothing the scraper needs to pause")
-except Exception as exc:
-    bad("unlimited focus bridge", str(exc)[:200])
+        chrome.new_tab(site_url)
+        time.sleep(6)  # content scripts inject at document_idle
+        p = extension.probe()
+        verdict, state = extension.detect()
+        chrome.close_tab()
+        if verdict == "ok":
+            guard = ("actively guarding — scraper will pause/resume it"
+                     if extension.is_blocking(state) else "installed, currently off")
+            ok(f"unlimited focus bridge ({site_label})", f"v{p.get('bridge')} — {guard}")
+        elif verdict == "stale":
+            bad(f"unlimited focus bridge ({site_label})",
+                "extension present but its agent bridge is not answering "
+                "(loaded build predates src/content/agent.js?)",
+                "chrome://extensions → Unlimited Focus → reload (↻), then rerun this check")
+        else:
+            ok(f"unlimited focus extension ({site_label})",
+               "not detected — nothing the scraper needs to pause "
+               "(if it should be here: reload it at chrome://extensions)")
+    except Exception as exc:
+        bad(f"unlimited focus bridge ({site_label})", str(exc)[:200])
 
 # 7. Telegram favorites report (OPTIONAL — only checked when configured)
 try:

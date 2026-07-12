@@ -79,10 +79,56 @@ const check = (cond, name) => {
   }
 
   // Item identity: /reel/X, /reels/X, and sub-pages are the same item
-  check(R.itemKey("/reel/ABC/") === "ABC", "itemKey /reel/ABC/");
-  check(R.itemKey("/reels/ABC") === "ABC", "itemKey /reels/ABC");
-  check(R.itemKey("/p/XYZ/liked_by/") === "XYZ", "itemKey ignores sub-pages");
+  check(R.itemKey(site, "/reel/ABC/") === "ABC", "itemKey /reel/ABC/");
+  check(R.itemKey(site, "/reels/ABC") === "ABC", "itemKey /reels/ABC");
+  check(R.itemKey(site, "/p/XYZ/liked_by/") === "XYZ", "itemKey ignores sub-pages");
   check(Number.isInteger(site.itemAllowance), "site has an itemAllowance");
+  check(site.storiesTray === true, "instagram keeps its stories tray");
+
+  // LinkedIn
+  const li = R.forHost("www.linkedin.com");
+  check(!!li && !!R.forHost("linkedin.com"), "linkedin hosts match");
+  check(!R.forHost("evil-linkedin.com"), "lookalike linkedin host does not match");
+  check(!li.storiesTray, "linkedin has no stories tray");
+
+  for (const [p, want] of [
+    ["/feed/", true],
+    ["/feed", true],
+    ["/", false],                       // logged-out landing / redirect page
+    ["/feed/update/urn:li:activity:71/", false],
+    ["/in/some-person/", false],
+    ["/mynetwork/", false],
+    ["/messaging/", false],
+    ["/jobs/", false],
+    ["/feedback/", false],
+  ]) {
+    check(R.isLimitedPath(li, p) === want, `linkedin limited ${p} -> ${want}`);
+  }
+
+  for (const [p, want] of [
+    ["/feed/update/urn:li:activity:7123456789/", true],
+    ["/posts/jane-doe_ai-activity-7123456789-Ab3d/", true],
+    ["/feed/", false],
+    ["/posts/", false],
+    ["/pulse/some-article-title/", false],
+    ["/in/some-person/", false],
+  ]) {
+    check(R.isContainedPath(li, p) === want, `linkedin contained ${p} -> ${want}`);
+  }
+
+  // Both permalink shapes of one post resolve to the same numeric id
+  check(
+    R.itemKey(li, "/feed/update/urn:li:activity:7123456789/") === "7123456789",
+    "linkedin itemKey from urn permalink"
+  );
+  check(
+    R.itemKey(li, "/posts/jane-doe_ai-activity-7123456789-Ab3d/") === "7123456789",
+    "linkedin itemKey from share slug"
+  );
+  check(
+    R.itemKey(li, "/feed/update/urn:li:ugcPost:555/") === "555",
+    "linkedin itemKey from ugcPost urn"
+  );
 
   // Settings normalization
   let s = await globalThis.UFSettings.load();
@@ -91,6 +137,7 @@ const check = (cond, name) => {
   check(s.maxScreens === 3, "default maxScreens");
   check(s.message === "With focus, anything is possible.", "default message");
   check(s.sites.instagram === true, "new site defaults to enabled");
+  check(s.sites.linkedin === true, "linkedin defaults to enabled");
 
   stored = { mode: "limit", message: "  Go build something.  ", maxScreens: 5 };
   s = await globalThis.UFSettings.load();

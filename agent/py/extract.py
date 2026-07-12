@@ -45,7 +45,8 @@ def run_claude(prompt: str, timeout: int = 180) -> str:
     return result.stdout
 
 
-def extract_item(kind: str, username: str, image_path: str | None, raw_text: str | None) -> dict:
+def extract_item(kind: str, username: str, image_path: str | None, raw_text: str | None,
+                 platform_label: str = "Instagram") -> dict:
     parts = ["You are a strict extraction engine for a personal social-media digest."]
     if image_path:
         parts.append(f"Read the image at {image_path}")
@@ -53,8 +54,9 @@ def extract_item(kind: str, username: str, image_path: str | None, raw_text: str
         parts.append(f"Raw text scraped alongside it (caption, counts, comment previews):\n---\n{raw_text[:3000]}\n---")
     if not image_path and not raw_text:
         raise ValueError("nothing to extract from (no image, no text)")
+    article = "an" if platform_label[:1].lower() in "aeiou" else "a"
     parts.append(
-        f"It is an Instagram {kind} by @{username}.\n"
+        f"It is {article} {platform_label} {kind} by @{username}.\n"
         'Respond with ONLY minified JSON (no markdown fences, no prose) with exactly these keys:\n'
         '{"media_type":"image|video|carousel|text|unknown",'
         '"topic":"<1-3 word topic>",'
@@ -62,7 +64,7 @@ def extract_item(kind: str, username: str, image_path: str | None, raw_text: str
         '"brief":"<1-2 sentence summary>",'
         '"detail":"<3-6 sentence detailed description: what is happening, who, where, when if visible>",'
         '"noteworthy":["<life events worth remembering long-term: birthdays, weddings, moves, travel, launches, achievements — empty array if none>"],'
-        '"mentions":["<other instagram usernames referenced, without the @>"]}'
+        f'"mentions":["<other {platform_label} usernames/handles referenced, without the @>"]}}'
     )
     return _parse_json_loose(run_claude("\n".join(parts)))
 

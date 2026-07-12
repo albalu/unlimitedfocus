@@ -10,9 +10,12 @@ BUTTERBASE_APP_ID = os.environ.get("BUTTERBASE_APP_ID", "app_desa1zwpsx43")
 BUTTERBASE_API_BASE = f"https://api.butterbase.ai/v1/{BUTTERBASE_APP_ID}"
 
 PLATFORM_INSTAGRAM = "instagram"
-# TODO(phase-later): 'x', 'linkedin', 'facebook', 'threads', 'tiktok' — each new
-# platform is one new scrape_<platform>.py using the same chrome/butterbase/graph
-# plumbing, nothing else changes.
+PLATFORM_LINKEDIN = "linkedin"
+# TODO(phase-later): 'x', 'facebook', 'threads', 'tiktok' — each new platform
+# is one new scrape_<platform>.py on the shared plumbing (chrome/butterbase/
+# graph/cache + scrape_common), nothing else changes.
+
+PLATFORM_LABELS = {PLATFORM_INSTAGRAM: "Instagram", PLATFORM_LINKEDIN: "LinkedIn"}
 
 
 def _int(name: str, dflt: int) -> int:

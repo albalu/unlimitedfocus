@@ -4,7 +4,9 @@ A browser extension that puts an end to infinite scroll on distracting feeds,
 while leaving the rest of the site fully functional. On Instagram, the home
 feed, Explore, and Reels are replaced by a focus message (or, optionally,
 stop after a scroll allowance) — direct messages, individual posts, profiles,
-and everything else work normally.
+and everything else work normally. On LinkedIn, the home feed gets the same
+treatment — messaging, jobs, profiles, notifications, and individual posts
+keep working.
 
 ## → The agent: [agent/README.md](agent/README.md)
 
@@ -37,15 +39,16 @@ to redesigns. It has two modes:
 
 **Hide the feed** (default) — on feed paths, the feed is hidden and a
 centered message is shown instead (*"With focus, anything is possible."* —
-editable in the popup). The stories tray stays visible and clickable: the
-blocker finds it structurally (links to `/stories/…`, falling back to the
-`<canvas>` story rings, reduced to their common ancestor) and hides only the
-sibling branches around it inside `<main>` — feed posts, suggestions, and
-all. If no tray exists on the surface (Explore, Reels) or detection ever
-fails, the whole `<main>` region is hidden instead, so the failure mode is
-always *more* focus, never a visible feed. The nav sidebar, drawers, and
-dialogs live outside `<main>` and keep working; hidden content is
-`display: none`, so nothing ever loads in the background either.
+editable in the popup). On Instagram the stories tray stays visible and
+clickable: the blocker finds it structurally (links to `/stories/…`, falling
+back to the `<canvas>` story rings, reduced to their common ancestor) and
+hides only the sibling branches around it inside `<main>` — feed posts,
+suggestions, and all. If the site has no tray (LinkedIn), the surface doesn't
+render one (Explore, Reels), or detection ever fails, the whole `<main>`
+region is hidden instead, so the failure mode is always *more* focus, never a
+visible feed. The nav sidebar, drawers, and dialogs live outside `<main>` and
+keep working; hidden content is `display: none`, so nothing ever loads in the
+background either.
 
 **Limit scrolling** — the feed works but is capped at a fixed allowance of N
 viewport-heights ("screens") per visit, so it can never reach its "load more"
@@ -65,7 +68,8 @@ this drift: you can view the item you opened plus `itemAllowance` more
 when they render as dialogs. Returning to an already-viewed item lifts the
 wall; visiting any normal page (profile, DMs, ...) resets the session.
 
-**Working with the agent** — when the scraper (`agent/py/scrape_instagram.py`)
+**Working with the agent** — when a scraper (`agent/py/scrape_instagram.py`,
+`agent/py/scrape_linkedin.py`)
 runs in the same browser, it pauses the extension for the walk and turns it
 back on when it finishes or fails. The pause is a separate, time-boxed value
 in `chrome.storage.local` (set through a `postMessage` bridge in
@@ -141,6 +145,10 @@ Block mode (default):
 - [ ] Sidebar navigation, search and notification drawers still work
 - [ ] Editing the message in the popup updates the page live
 - [ ] Message is readable in both light and dark theme
+- [ ] LinkedIn home feed (`linkedin.com/feed/`) shows the focus message;
+      messaging, notifications, jobs, and profiles still work
+- [ ] Opening a LinkedIn post permalink (`/feed/update/…` or `/posts/…`)
+      works; browsing on to a 4th post hits the focus wall
 
 Limit mode:
 - [ ] Home feed stops after N screens; banner appears

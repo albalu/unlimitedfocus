@@ -24,6 +24,10 @@
  *                  feed — hits the focus wall
  *   itemAllowance  how many additional items beyond the one opened are
  *                  viewable before the wall (default 2)
+ *   itemKey        optional override for how a contained path maps to an item
+ *                  identity (see itemKey below for the default)
+ *   storiesTray    true when the site has a stories tray the blocker should
+ *                  keep visible (block mode hides everything else in <main>)
  *
  * Any path matching neither list (DMs, profiles, stories, settings, ...) is
  * left completely alone.
@@ -47,6 +51,27 @@ globalThis.UFSiteRules = (() => {
         /^\/p\/[^/]+/,        // a specific post
       ],
       itemAllowance: 2,
+      storiesTray: true,
+    },
+    {
+      id: "linkedin",
+      label: "LinkedIn",
+      hosts: ["www.linkedin.com", "linkedin.com"],
+      limitedPaths: [
+        /^\/feed\/?$/,        // home feed
+      ],
+      containedPaths: [
+        /^\/feed\/update\//,  // a specific post (/feed/update/urn:li:activity:<id>)
+        /^\/posts\/[^/]+/,    // a specific post (share slug ending in -activity-<id>-…)
+      ],
+      itemAllowance: 2,
+      // Both permalink shapes embed the same numeric urn id — that id is the
+      // item, so following a share link and landing on the urn permalink
+      // count as one view, not two.
+      itemKey(pathname) {
+        const m = pathname.match(/(?:activity|ugcpost|share)[:-](\d+)/i);
+        return m ? m[1] : pathname;
+      },
     },
   ];
 
@@ -63,10 +88,12 @@ globalThis.UFSiteRules = (() => {
   }
 
   /**
-   * Identity of the item a contained path shows, so /reel/ABC and /reels/ABC
-   * (and /p/ABC/liked_by) all count as the same item: the second segment.
+   * Identity of the item a contained path shows. Default: the second segment,
+   * so /reel/ABC and /reels/ABC (and /p/ABC/liked_by) all count as the same
+   * item. Sites whose permalinks don't fit that shape override via itemKey.
    */
-  function itemKey(pathname) {
+  function itemKey(site, pathname) {
+    if (site && site.itemKey) return site.itemKey(pathname);
     const segments = pathname.split("/").filter(Boolean);
     return segments.length >= 2 ? segments[1] : null;
   }

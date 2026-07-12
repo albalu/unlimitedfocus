@@ -12,6 +12,7 @@
   let settings = await globalThis.UFSettings.load();
   const limiter = new globalThis.UFScrollLimiter();
   const blocker = new globalThis.UFFeedBlocker();
+  blocker.keepStoriesTray = !!site.storiesTray;
 
   // While on contained paths (a specific post/reel), the items the user may
   // view: the one they arrived on plus up to itemAllowance more. Swiping
@@ -40,7 +41,7 @@
     let engine = "none";
     let drifted = false;
     if (siteEnabled && rules.isContainedPath(site, path)) {
-      const key = rules.itemKey(path);
+      const key = rules.itemKey(site, path);
       const allowance = site.itemAllowance ?? 2;
       if (!allowedItems) {
         allowedItems = new Set([key]);
@@ -72,7 +73,7 @@
     }
   }
 
-  // Instagram is an SPA: full page loads are rare, the URL changes via the
+  // These sites are SPAs: full page loads are rare, the URL changes via the
   // history API. Watching DOM mutations (throttled to one check per frame)
   // plus popstate catches every navigation without patching history in the
   // page's world.

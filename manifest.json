@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Unlimited Focus",
-  "version": "0.5.1",
+  "version": "0.6.0",
   "description": "Puts an end to infinite scroll on distracting feeds. The rest of the site (DMs, posts, profiles) keeps working normally.",
   "permissions": ["storage"],
   "icons": {
@@ -22,7 +22,12 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://www.instagram.com/*", "https://instagram.com/*"],
+      "matches": [
+        "https://www.instagram.com/*",
+        "https://instagram.com/*",
+        "https://www.linkedin.com/*",
+        "https://linkedin.com/*"
+      ],
       "js": [
         "src/shared/sites.js",
         "src/shared/settings.js",

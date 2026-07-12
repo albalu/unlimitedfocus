@@ -121,6 +121,12 @@ uv run inspect_data.py
 Prints your recent runs, the contacts it's building up, and the latest items
 with their brief + link.
 
+**LinkedIn too:** `uv run scrape_linkedin.py` walks your LinkedIn home feed
+the same way (feed-only — LinkedIn retired stories), shielding *Promoted* and
+*Suggested* posts, on the same daily cache, database, and graph. The shared
+run machinery lives in `scrape_common.py`; each platform script only owns its
+walk.
+
 ---
 
 ## Step 2 — digest the last few days
@@ -220,17 +226,18 @@ Butterbase static hosting.
 
 ## Roadmap
 
-- **Now** — Instagram scraper, backend, graph, web app, and RocketRide digest
-  all working end-to-end.
+- **Now** — Instagram + LinkedIn scrapers, backend, graph, web app, and
+  RocketRide digest all working end-to-end (LinkedIn not yet wired into the
+  digest pipeline).
 - **Next** — media to Butterbase storage (not local files), carousel/video
   handling, batch extraction, i18n-proof selectors, a scheduled overnight loop.
 - **Then** — Cognee memory promotion; a Telegram interface; more platforms (X,
-  LinkedIn, Facebook, Threads, TikTok — each is one new `scrape_<platform>.py`
+  Facebook, Threads, TikTok — each is one new `scrape_<platform>.py`
   on the same plumbing).
 
 ## Known limits (PoC)
 
-- Selectors assume the **English** Instagram UI (`Story by`, `Sponsored`).
+- Selectors assume the **English** UI (`Story by`, `Sponsored`, `Promoted`).
 - Stories/videos capture **one frame** + on-screen text.
 - `media_path` points at local files under `agent/data/media/` for now.
 - The RocketRide **daily scheduled** run needs `ROCKETRIDE_BB_KEY` set in its

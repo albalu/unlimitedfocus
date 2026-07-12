@@ -1,12 +1,13 @@
 #!/usr/bin/env python3
-"""Instagram scraper (PoC) — the agent that scrolls so you don't have to.
+"""Instagram scraper — the agent that scrolls so you don't have to.
 
 Drives YOUR real Chrome via AppleScript (same technique as slick_reader's
 foothill_browse_articles.py): opens one new tab in window 1, browses
 instagram.com inside your normal logged-in session, closes its tab when done.
 No Playwright, no separate profile.
 
-Capture-then-process, backed by a daily file cache (see cache.py):
+Capture-then-process, backed by a daily file cache (see cache.py) and the
+shared run machinery in scrape_common.py:
   1. STORY WALK  — fast: per segment grab first-frame media + metadata, hit
      Next immediately (~2s/segment; never sits through videos). Multi-segment
      stories yield one record per segment.
@@ -42,36 +43,16 @@ visible slide only.
 from __future__ import annotations
 
 import argparse
-import datetime as dt
-import html
-import json
 import random
 import re
 import time
 
-import requests
-
 import butterbase as bb
-import cache
 import chrome
-import extension
 import graph
-import telegram
+import scrape_common as sc
 import uf_config as cfg
-from extract import extract_item
-from uf_env import MEDIA_DIR, RUNS_DIR, env
-
-VERBOSE = False
-
-
-def log(*args):
-    print(dt.datetime.now().strftime("%H:%M:%S"), *args, flush=True)
-
-
-def vlog(*args):
-    if VERBOSE:
-        log(*args)
-
+from scrape_common import log, vlog
 
 # ── in-page JS (returns JSON strings; executed via chrome.js_json) ────────────
 
@@ -334,104 +315,7 @@ _FEED_JS = r"""(function(){
 })()"""
 
 
-# ── helpers ───────────────────────────────────────────────────────────────────
-
-def download_media(url: str | None, stem: str) -> str | None:
-    """Fetch a media CDN URL to MEDIA_DIR; None (-> text-only extraction) on miss."""
-    if not url or url.startswith("blob:"):
-        return None
-    try:
-        r = requests.get(url, timeout=20, headers={"User-Agent": "Mozilla/5.0"})
-        r.raise_for_status()
-        ct = r.headers.get("content-type", "")
-        ext = ".png" if "png" in ct else ".webp" if "webp" in ct else ".jpg"
-        p = MEDIA_DIR / f"{stem}{ext}"
-        p.write_bytes(r.content)
-        return str(p)
-    except Exception as exc:
-        vlog(f"    (media download failed, text-only extraction: {str(exc)[:100]})")
-        return None
-
-
-def append_jsonl(ctx: dict, obj: dict) -> None:
-    obj = {"ts": dt.datetime.now(dt.timezone.utc).isoformat(), **obj}
-    with open(ctx["jsonl_path"], "a", encoding="utf-8") as fh:
-        fh.write(json.dumps(obj, ensure_ascii=False) + "\n")
-
-
-def _log_snooze_skip(ctx: dict, username: str, kind: str) -> None:
-    """First skip per poster logs at normal level (visible confirmation the
-    snooze is acknowledged); repeats only with --verbose to avoid spam when
-    one muted account has many stories."""
-    if username not in ctx["snooze_logged"]:
-        ctx["snooze_logged"].add(username)
-        log(f"  🔕 skipping @{username} ({kind}) — snoozed")
-    else:
-        vlog(f"  🔕 skipped another {kind} by snoozed @{username}")
-    append_jsonl(ctx, {"type": "snoozed_skip", "handle": username, "kind": kind})
-
-
-def capture(ctx: dict, rec: dict) -> None:
-    """Register a capture in the daily cache + this run's pending set."""
-    cache.append_captured(rec)
-    ctx["cache_captured"][rec["external_id"]] = rec
-    vlog(f"  ⊙ captured {rec['kind']} {rec['external_id']} by @{rec['username']}")
-
-
-def process_item(ctx: dict, *, kind: str, username: str, external_id: str, url: str,
-                 image_path: str | None, raw_text: str | None, posted_at: str | None,
-                 media_hint: str | None = None, **_ignored) -> None:
-    log(f"  ⋯ {kind} {external_id} by @{username}")
-    x = extract_item(kind, username, image_path, raw_text)
-    if media_hint and x.get("media_type") in (None, "unknown", "image"):
-        x["media_type"] = media_hint
-
-    contact = bb.upsert_contact(cfg.PLATFORM_INSTAGRAM, username,
-                                profile_url=f"https://www.instagram.com/{username}/")
-    item = bb.upsert_item({
-        "platform": cfg.PLATFORM_INSTAGRAM,
-        "kind": kind,
-        "external_id": external_id,
-        "url": url,
-        "contact_id": contact["id"],
-        "media_type": x.get("media_type") or "unknown",
-        "topic": x.get("topic"),
-        "structured": x,
-        "brief": x.get("brief"),
-        "detail": x.get("detail"),
-        "caption_raw": raw_text,
-        "media_path": image_path,
-        "posted_at": posted_at,
-        "captured_at": dt.datetime.now(dt.timezone.utc).isoformat(),
-    })
-
-    if not ctx["no_graph"]:
-        graph.sync_item_to_graph(contact, item, x.get("mentions"))
-        bb.mark_graph_synced(item["id"])
-
-    ctx["stats"]["new_stories" if kind == "story" else "new_posts"] += 1
-    append_jsonl(ctx, {"type": "item", "kind": kind, "username": username,
-                       "external_id": external_id, "url": url, "topic": x.get("topic"),
-                       "brief": x.get("brief"), "noteworthy": x.get("noteworthy"),
-                       "posted_at": posted_at})
-    log(f"  ✓ [{x.get('topic') or '—'}] {x.get('brief') or ''}")
-
-
-# ── stories (walk only — processing happens in process_pending) ───────────────
-
-def _preload_snoozed_handles() -> set[str]:
-    """Posters the user snoozed in the UI (contacts.snoozed_until in the
-    future). The scraper honors this at capture time: no screenshot, no
-    extraction tokens, no DB/graph writes for muted posters."""
-    now = dt.datetime.now(dt.timezone.utc).isoformat()
-    rows = bb.select("contacts", {
-        "platform": f"eq.{cfg.PLATFORM_INSTAGRAM}",
-        "snoozed_until": f"gt.{now}",
-        "select": "handle",
-        "limit": 1000,
-    })
-    return {r["handle"] for r in rows}
-
+# ── stories (walk only — processing happens in sc.process_pending) ────────────
 
 def _preload_known_story_ids() -> set[str]:
     """One query instead of a per-segment HTTP dedupe check (stories only live
@@ -521,7 +405,7 @@ def scrape_stories(ctx: dict) -> None:
 
         if username in ctx["snoozed"]:
             ctx["stats"]["snoozed_skipped"] += 1
-            _log_snooze_skip(ctx, username, "story")
+            sc.log_snooze_skip(ctx, username, "story")
             advance()
             continue
         if story_id in ctx["cache_captured"]:  # captured earlier today — data already on disk
@@ -554,8 +438,8 @@ def scrape_stories(ctx: dict) -> None:
             if img_url:
                 last_img_url = img_url
 
-            image_path = download_media(img_url, f"story_{story_id}")
-            capture(ctx, dict(
+            image_path = sc.download_media(img_url, f"story_{story_id}")
+            sc.capture(ctx, dict(
                 kind="story", username=username, external_id=story_id,
                 url=f"https://www.instagram.com/stories/{username}/{story_id}/",
                 image_path=image_path, raw_text=state.get("text"),
@@ -571,7 +455,7 @@ def scrape_stories(ctx: dict) -> None:
     log(f"story walk done: {walked} captured, {ctx['stats']['dupes']} already known")
 
 
-# ── feed (walk only — processing happens in process_pending) ──────────────────
+# ── feed (walk only — processing happens in sc.process_pending) ───────────────
 
 def _preload_known_post_ids() -> set[str]:
     rows = bb.select("items", {
@@ -613,12 +497,12 @@ def scrape_feed(ctx: dict) -> None:
             # The shield: promotional content is counted, never processed.
             if re.search(r"\bSponsored\b", text):
                 ctx["stats"]["ads_shielded"] += 1
-                append_jsonl(ctx, {"type": "shielded", "reason": "sponsored", "external_id": shortcode})
+                sc.append_jsonl(ctx, {"type": "shielded", "reason": "sponsored", "external_id": shortcode})
                 log(f"  🛡 shielded sponsored content ({ctx['stats']['ads_shielded']} this run)")
                 continue
             if "Suggested for you" in text:
                 ctx["stats"]["suggested_shielded"] += 1
-                append_jsonl(ctx, {"type": "shielded", "reason": "suggested", "external_id": shortcode})
+                sc.append_jsonl(ctx, {"type": "shielded", "reason": "suggested", "external_id": shortcode})
                 continue
 
             if shortcode in ctx["cache_captured"]:  # captured earlier today
@@ -639,13 +523,13 @@ def scrape_feed(ctx: dict) -> None:
                 continue
             if username in ctx["snoozed"]:
                 ctx["stats"]["snoozed_skipped"] += 1
-                _log_snooze_skip(ctx, username, "post")
+                sc.log_snooze_skip(ctx, username, "post")
                 continue
 
             known.add(shortcode)
             kind = "reel" if "/reel/" in card["href"] else "post"
-            image_path = download_media(card.get("img"), f"post_{shortcode}")
-            capture(ctx, dict(
+            image_path = sc.download_media(card.get("img"), f"post_{shortcode}")
+            sc.capture(ctx, dict(
                 kind=kind, username=username, external_id=shortcode,
                 url=f"https://www.instagram.com{card['href']}",
                 image_path=image_path, raw_text=text,
@@ -662,114 +546,9 @@ def scrape_feed(ctx: dict) -> None:
     log(f"feed walk done: {walked} captured")
 
 
-# ── processing (browser idle) ─────────────────────────────────────────────────
-
-def process_pending(ctx: dict) -> None:
-    pending = [rec for ext_id, rec in ctx["cache_captured"].items()
-               if ext_id not in ctx["committed"]]
-    if not pending:
-        log("nothing pending to process")
-        return
-    log(f"— processing {len(pending)} pending item(s) (incl. any left over from earlier runs today) —")
-    for rec in pending:
-        try:
-            process_item(ctx, **rec)
-            cache.mark_committed(rec["external_id"])
-            ctx["committed"].add(rec["external_id"])
-        except Exception as exc:
-            ctx["stats"]["errors"] += 1
-            log(f"  ✗ {rec.get('kind')} {rec.get('external_id')} failed (stays cached, retries next run): {str(exc)[:200]}")
-
-
-# ── favorites report (runs last, after processing) ────────────────────────────
-
-def report_favorites(ctx: dict, cutoff_iso: str) -> None:
-    """End-of-run round-up: Telegram the new post/story links of every favorite
-    poster (top story link only per poster). 'New' = captured since the previous
-    completed run (24h fallback on the first run). Best-effort — any failure is
-    logged and swallowed so it never breaks a scrape."""
-    if not telegram.configured():
-        log("telegram not configured (TELEGRAM_SEASONS_*) — skipping favorites report")
-        return
-    try:
-        favs = bb.select("contacts", {
-            "favorited": "eq.true", "select": "id,handle,display_name",
-            "order": "handle.asc", "limit": 500,
-        })
-        if not favs:
-            log("no favorite posters — skipping favorites report")
-            return
-
-        sections, links, empty = [], 0, 0
-        for c in favs:
-            items = bb.select("items", {
-                "contact_id": f"eq.{c['id']}", "deleted_at": "is.null",
-                "captured_at": f"gte.{cutoff_iso}", "select": "kind,url",
-                "order": "captured_at.desc", "limit": 100,
-            })
-            items = [it for it in items if it.get("url")]
-            if not items:
-                empty += 1
-                continue
-            stories = [it for it in items if it.get("kind") == "story"]
-            others = [it for it in items if it.get("kind") != "story"]
-
-            name = c.get("display_name")
-            head = f"❤️ <b>@{html.escape(c['handle'])}</b>"
-            if name and name != c["handle"]:
-                head += f" · {html.escape(name)}"
-            lines = [head]
-            if stories:  # top (most recent) story only
-                surl = html.escape(stories[0]["url"])
-                lines.append(f'• 📖 <a href="{surl}">story</a>')
-                links += 1
-            seen = set()
-            for it in others:
-                if it["url"] in seen:
-                    continue
-                seen.add(it["url"])
-                reel = it.get("kind") == "reel"
-                lines.append(f'• {"🎬" if reel else "📷"} '
-                             f'<a href="{html.escape(it["url"])}">{"reel" if reel else "post"}</a>')
-                links += 1
-            sections.append("\n".join(lines))
-
-        if not sections:
-            log(f"favorites report: no new posts from {len(favs)} favorite(s) since last run")
-            return
-        date = dt.datetime.now().strftime("%a %b %d")
-        body = f"❤️ <b>Favorites update</b> — {date}\n\n" + "\n\n".join(sections)
-        if empty:
-            body += f"\n\n<i>({empty} other favorite(s) had no new posts)</i>"
-        telegram.send_message(body)
-        log(f"📮 favorites report sent to Telegram: {len(sections)} poster(s), {links} link(s)")
-    except Exception as exc:
-        log(f"⚠ favorites report failed (non-fatal): {str(exc)[:200]}")
-
-
 # ── main ──────────────────────────────────────────────────────────────────────
 
-def print_summary(ctx: dict) -> None:
-    s = ctx["stats"]
-    uncommitted = len([1 for e in ctx["cache_captured"] if e not in ctx["committed"]])
-    print(f"""
-──────────────────────────────────────────
- run complete
-   new posts      {s['new_posts']}
-   new stories    {s['new_stories']}
-   already known  {s['dupes']}
-   🛡 ads shielded         {s['ads_shielded']}
-   🛡 suggested shielded   {s['suggested_shielded']}
-   🔕 snoozed skipped      {s['snoozed_skipped']}
-   author unresolved       {s['author_unresolved']}
-   errors                  {s['errors']}
-   cached, not yet in DB   {uncommitted}  (rerun to retry)
- inspect: uv run inspect_data.py   |   raw log: {ctx['jsonl_path']}
-──────────────────────────────────────────""")
-
-
 def main() -> None:
-    global VERBOSE
     ap = argparse.ArgumentParser(description=__doc__)
     ap.add_argument("--no-graph", action="store_true",
                     help="skip Neo4j sync (backfill later with graph_sync.py)")
@@ -778,135 +557,45 @@ def main() -> None:
                          "(use after schema/prompt changes; DB rows are updated in place)")
     ap.add_argument("--verbose", action="store_true")
     args = ap.parse_args()
-    VERBOSE = args.verbose
 
-    env("BUTTERBASE_API_KEY")  # fail fast before touching the browser
-    if not args.no_graph:
-        graph.verify_graph()
-        graph.ensure_constraints()
-        log("neo4j connected")
-    else:
-        log("--no-graph: items stay graph_synced=false; run `uv run graph_sync.py` later")
-
-    purged = cache.purge_old()
-    if purged:
-        log(f"purged {purged} cache day(s) older than {cache.PURGE_DAYS} days")
-
-    prev = bb.last_completed_run(cfg.PLATFORM_INSTAGRAM)
-    log(f"last completed run: {prev['started_at']}" if prev else "first run for this platform")
-    # Favorites report scopes to content captured since the previous run (so
-    # re-runs the same day don't re-send the same links); 24h on the first run.
-    fav_cutoff = (prev["started_at"] if prev and prev.get("started_at")
-                  else (dt.datetime.now(dt.timezone.utc) - dt.timedelta(hours=24)).isoformat())
-
-    MEDIA_DIR.mkdir(parents=True, exist_ok=True)
-    RUNS_DIR.mkdir(parents=True, exist_ok=True)
-
-    run = bb.start_run(cfg.PLATFORM_INSTAGRAM)
-    ctx = {
-        "no_graph": args.no_graph,
-        "jsonl_path": RUNS_DIR / (dt.datetime.now().strftime("%Y-%m-%dT%H-%M-%S") + ".jsonl"),
-        "cache_captured": cache.load_captured(),
-        "committed": set() if args.overwrite_today else cache.load_committed(),
-        "snoozed": _preload_snoozed_handles(),
-        "snooze_logged": set(),
-        "stats": {"new_posts": 0, "new_stories": 0, "dupes": 0,
-                  "ads_shielded": 0, "suggested_shielded": 0, "snoozed_skipped": 0,
-                  "author_unresolved": 0, "errors": 0},
-    }
-    if ctx["snoozed"]:
-        # Log WHO is being honored (not just a count) so acknowledgment is
-        # always verifiable — full list lands in the run's jsonl.
-        names = sorted(ctx["snoozed"])
-        shown = ", ".join("@" + h for h in names[:15])
-        more = f" … +{len(names) - 15} more (full list in run log)" if len(names) > 15 else ""
-        log(f"🔕 honoring {len(names)} snoozed poster(s): {shown}{more}")
-        append_jsonl(ctx, {"type": "snoozed_honored", "handles": names})
-    if ctx["cache_captured"]:
-        already = len([1 for e in ctx["cache_captured"] if e in ctx["committed"]])
-        log(f"daily cache: {len(ctx['cache_captured'])} captured today "
-            f"({already} committed{', overwrite requested' if args.overwrite_today else ''})")
-    log(f"run {run['id']} started")
+    ctx = sc.begin_run(
+        cfg.PLATFORM_INSTAGRAM,
+        no_graph=args.no_graph, overwrite_today=args.overwrite_today,
+        verbose=args.verbose,
+        stats_keys=("new_posts", "new_stories", "dupes", "ads_shielded",
+                    "suggested_shielded", "snoozed_skipped",
+                    "author_unresolved", "errors"),
+    )
 
     chrome.new_tab("https://www.instagram.com/")
     time.sleep(random.uniform(3.0, 5.0))
     ctx["tab_open"] = True
-    ctx["uf_paused"] = False
-
-    def close_our_tab():
-        # Guarded: close_tab targets the LAST tab of window 1, so a second call
-        # would hit one of the user's own tabs.
-        if ctx["tab_open"]:
-            chrome.close_tab()
-            ctx["tab_open"] = False
-
-    def pause_extension():
-        """If Unlimited Focus is actively guarding instagram, pause it for the
-        walks. Only pauses what is ON — a user-disabled extension stays off,
-        because the pause layer never touches the master switch. A build too
-        old to have the bridge fails the run loudly (owner's rule): its
-        blocker keeps the feed display:none and every capture comes up empty."""
-        verdict, state = extension.detect()
-        if verdict == "absent":
-            log("unlimited focus extension not detected — nothing to pause")
-        elif verdict == "stale":
-            raise SystemExit(
-                "Unlimited Focus is installed but not answering its agent bridge — the "
-                "loaded build predates src/content/agent.js, and its blocker would hide "
-                "everything this run tries to capture.\n"
-                "Fix: chrome://extensions → Unlimited Focus → reload (↻), then rerun. "
-                "Verify with: uv run check.py"
-            )
-        elif extension.is_blocking(state):
-            if extension.pause(cfg.EXTENSION_PAUSE_MINUTES) is not None:
-                ctx["uf_paused"] = True
-                log(f"🧘 unlimited focus paused for this run "
-                    f"(crash backstop: re-enables itself in {cfg.EXTENSION_PAUSE_MINUTES} min)")
-                if not extension.wait_until_unhidden():
-                    log("⚠ feed still hidden after the pause ack — captures may come up empty")
-                time.sleep(random.uniform(1.5, 2.5))  # let the unblocked feed render
-            else:
-                log("⚠ could not pause unlimited focus — proceeding, but the feed may be hidden")
-        else:
-            log("unlimited focus is already off — leaving it off")
-
-    def restore_extension():
-        # Needs our tab: the bridge lives in its content script. Hence called
-        # BEFORE close_our_tab on every path.
-        if not ctx["uf_paused"]:
-            return
-        ctx["uf_paused"] = False
-        if extension.resume() is not None:
-            log("🧘 unlimited focus back on")
-        else:
-            log(f"⚠ could not turn unlimited focus back on — it re-enables itself "
-                f"within {cfg.EXTENSION_PAUSE_MINUTES} min")
 
     try:
         if "/accounts/login" in chrome.tab_url():
             raise SystemExit("Instagram is not logged in in your Chrome — log in, then rerun.")
-        pause_extension()
+        sc.pause_extension(ctx)
         chrome.js(_DISMISS_JS)
 
         scrape_stories(ctx)
         scrape_feed(ctx)
-        restore_extension()
-        close_our_tab()  # walks done — browser not needed for processing
+        sc.restore_extension(ctx)
+        sc.close_our_tab(ctx)  # walks done — browser not needed for processing
 
-        process_pending(ctx)
+        sc.process_pending(ctx)
 
-        bb.finish_run(run["id"], "completed", ctx["stats"])
-        report_favorites(ctx, fav_cutoff)  # last step: after everything else is done
-        print_summary(ctx)
+        sc.finish_run(ctx, "completed")
+        sc.report_favorites(ctx)  # last step: after everything else is done
+        sc.print_summary(ctx)
     except BaseException as exc:
         try:
-            bb.finish_run(run["id"], "failed", ctx["stats"], error=str(exc)[:500])
+            sc.finish_run(ctx, "failed", error=str(exc)[:500])
         except Exception:
             pass
         raise
     finally:
-        restore_extension()
-        close_our_tab()
+        sc.restore_extension(ctx)
+        sc.close_our_tab(ctx)
         graph.close_graph()
 
 

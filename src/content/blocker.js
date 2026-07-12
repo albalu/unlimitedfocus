@@ -9,10 +9,12 @@
  * touched). Two hiding strategies, both driven by attributes that blocker.css
  * keys off, so deactivating is just removing attributes:
  *
- *  1. If the stories tray can be found, hide only the sibling branches along
- *     the tray → <main> path (feed posts, suggestions sidebar, ...). The tray
- *     stays visible and clickable.
- *  2. Otherwise (Explore, Reels, tray not rendered yet) hide <main> entirely.
+ *  1. If the site has a stories tray (keepStoriesTray, set from the site
+ *     rule — Instagram) and it can be found, hide only the sibling branches
+ *     along the tray → <main> path (feed posts, suggestions sidebar, ...).
+ *     The tray stays visible and clickable.
+ *  2. Otherwise (LinkedIn, Explore, Reels, tray not rendered yet) hide
+ *     <main> entirely.
  *
  * The tray is located structurally: links to /stories/… (or, failing that,
  * the <canvas> story rings), reduced to their lowest common ancestor. If that
@@ -32,6 +34,9 @@ class UFFeedBlocker {
   constructor() {
     this.active = false;
     this.message = "";
+    // Set from the site rule (storiesTray). When false, tray detection is
+    // skipped entirely and block mode always hides <main>.
+    this.keepStoriesTray = false;
     // When true, [role="dialog"] layers are hidden too. Used for the item
     // drift wall: post/reel viewers can be dialogs rendered outside <main>,
     // so hiding <main> alone would leave them browsable. Feed blocking keeps
@@ -87,7 +92,7 @@ class UFFeedBlocker {
   _apply() {
     const root = document.documentElement;
     const main = document.querySelector("main");
-    const tray = main ? this._findStoriesTray(main) : null;
+    const tray = main && this.keepStoriesTray ? this._findStoriesTray(main) : null;
     if (!tray) {
       root.setAttribute("data-uf-main-hidden", "");
       root.removeAttribute("data-uf-feed-hidden");

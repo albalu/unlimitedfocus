@@ -41,6 +41,7 @@
           new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
 
         const blocker = new UFFeedBlocker();
+        blocker.keepStoriesTray = true; // as index.js sets for sites with storiesTray (Instagram)
         blocker.message = "With focus, anything is possible.";
         blocker.activate();
         await tick();
@@ -81,6 +82,19 @@
         blocker.deactivate();
         check(!hidden(dialog), "deactivate restores dialogs");
         blocker.hideDialogs = false;
+
+        // LinkedIn-like site (no storiesTray in its rule): tray detection is
+        // skipped and <main> hides even though tray-shaped markup exists.
+        blocker.keepStoriesTray = false;
+        blocker.activate();
+        await tick();
+        check(
+          document.documentElement.hasAttribute("data-uf-main-hidden"),
+          "keepStoriesTray=false: whole-main mode despite tray markup"
+        );
+        check(hidden(document.querySelector("main")), "keepStoriesTray=false hides main");
+        blocker.deactivate();
+        blocker.keepStoriesTray = true;
 
         // Explore/Reels-like surface: no tray → whole <main> hidden. The
         // story link inside the remaining post must NOT count as a tray.
